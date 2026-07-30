@@ -14,6 +14,10 @@ from qfluentwidgets import (FluentIcon as FIF, OptionsSettingCard, SwitchSetting
 
 from src.gui.common.config import paramConfig
 from src.gui.common.globals import globalParam, globalSignal
+from src.gui.common.soar_template_display import (
+    get_soar_preset_templates,
+    populate_soar_template_combo,
+)
 from src.gui.common.style_sheet import StyleSheet
 from src.gui.common.task import BaseTask, ValidationResult, TaskId
 
@@ -75,17 +79,21 @@ class SoarToTheBeatMacroReplayWidget(QWidget):
 
         self.defaultTemplateLabel = QLabel(self.tr("预设模板:"), self)
 
-        self.templates = self.getTemplates()
+        self.templates = get_soar_preset_templates()
         self.defaultTemplateComboBox = ComboBox(self)
-        self.defaultTemplateComboBox.addItems(self.templates)
-        self.defaultTemplateComboBox.setCurrentIndex(0)
+        populate_soar_template_combo(self.defaultTemplateComboBox, self.templates)
+        if self.defaultTemplateComboBox.count() > 0:
+            self.defaultTemplateComboBox.setCurrentIndex(0)
 
         self.userTemplateLabel = QLabel(
             self.tr("自定义模板  目录: {dir}").format(dir=str(self.getMacroSoarToTheBeatPath())), self)
         self.userTemplateLabel.setWordWrap(True)
 
         self.userTemplateComboBox = ComboBox(self)
-        self.userTemplateComboBox.addItems(self.getMacroSoarToTheBeatUserFiles())
+        populate_soar_template_combo(
+            self.userTemplateComboBox,
+            self.getMacroSoarToTheBeatUserFiles(),
+        )
         self.userTemplateComboBox.setCurrentIndex(-1)
 
         self.hBoxLayout = QHBoxLayout()
@@ -129,8 +137,8 @@ class SoarToTheBeatMacroReplayWidget(QWidget):
         self.mainLayout.setAlignment(Qt.AlignVCenter)
 
     def __connectSignalToSlot(self):
-        self.defaultTemplateComboBox.currentTextChanged.connect(self.onDefaultTemplateComboboxTextChanged)
-        self.userTemplateComboBox.currentTextChanged.connect(self.onUserTemplateComboboxTextChanged)
+        self.defaultTemplateComboBox.currentIndexChanged.connect(self.onDefaultTemplateComboboxIndexChanged)
+        self.userTemplateComboBox.currentIndexChanged.connect(self.onUserTemplateComboboxIndexChanged)
         self.refreshButton.clicked.connect(self.onRefreshButtonClicked)
         self.useUserTemplateButton.clicked.connect(self.onUseUserTemplateButtonClicked)
         self.aboutFlyoutButton.clicked.connect(self.showAboutFlyout)
@@ -138,8 +146,8 @@ class SoarToTheBeatMacroReplayWidget(QWidget):
     def __loadConfig(self):
         text = self.defaultTemplate.value
         is_change = False
-        if text and text != self.defaultTemplateComboBox.currentText():
-            index = self.defaultTemplateComboBox.findText(text)
+        if text and text != self.defaultTemplateComboBox.currentData():
+            index = self.defaultTemplateComboBox.findData(text)
             if index >= 0:
                 self.defaultTemplateComboBox.blockSignals(True)
                 self.defaultTemplateComboBox.setCurrentIndex(index)
@@ -147,12 +155,12 @@ class SoarToTheBeatMacroReplayWidget(QWidget):
                 is_change = True
         # 没找到匹配的选项，更新成第一个
         if not is_change:
-            self.onDefaultTemplateComboboxTextChanged(self.defaultTemplateComboBox.currentText())
+            self.onDefaultTemplateComboboxIndexChanged(self.defaultTemplateComboBox.currentIndex())
 
         text = self.userTemplate.value
         is_change = False
-        if text and text != self.userTemplateComboBox.currentText():
-            index = self.userTemplateComboBox.findText(text)
+        if text and text != self.userTemplateComboBox.currentData():
+            index = self.userTemplateComboBox.findData(text)
             if index >= 0:
                 self.userTemplateComboBox.blockSignals(True)
                 self.userTemplateComboBox.setCurrentIndex(index)
@@ -160,18 +168,28 @@ class SoarToTheBeatMacroReplayWidget(QWidget):
                 is_change = True
         # 没找到匹配的选项，更新成空
         if not is_change:
-            self.onUserTemplateComboboxTextChanged(None)
+            self.onUserTemplateComboboxIndexChanged(self.userTemplateComboBox.currentIndex())
 
         if self.useUserTemplate.value is True:
             self.useUserTemplateButton.blockSignals(True)
             self.useUserTemplateButton.setChecked(True)
             self.useUserTemplateButton.blockSignals(False)
 
-    def onDefaultTemplateComboboxTextChanged(self, text):
-        paramConfig.set(self.defaultTemplate, text if text else None)
+    def refreshTemplateComboLabels(self):
+        default_selected = self.defaultTemplateComboBox.currentData()
+        user_selected = self.userTemplateComboBox.currentData()
+        populate_soar_template_combo(self.defaultTemplateComboBox, self.templates, default_selected)
+        populate_soar_template_combo(
+            self.userTemplateComboBox,
+            self.getMacroSoarToTheBeatUserFiles(),
+            user_selected,
+        )
 
-    def onUserTemplateComboboxTextChanged(self, text):
-        paramConfig.set(self.userTemplate, text if text else None)
+    def onDefaultTemplateComboboxIndexChanged(self, _index):
+        paramConfig.set(self.defaultTemplate, self.defaultTemplateComboBox.currentData())
+
+    def onUserTemplateComboboxIndexChanged(self, _index):
+        paramConfig.set(self.userTemplate, self.userTemplateComboBox.currentData())
 
     def onUseUserTemplateButtonClicked(self):
         paramConfig.set(self.useUserTemplate, self.useUserTemplateButton.isChecked())
@@ -179,13 +197,10 @@ class SoarToTheBeatMacroReplayWidget(QWidget):
     def onRefreshButtonClicked(self):
         fileNames = self.getMacroSoarToTheBeatUserFiles()
         logger.debug(f"fileNames: {fileNames}")
-        currentText = self.userTemplateComboBox.currentText()
-        logger.debug(f"currentText: {currentText}")
-        self.userTemplateComboBox.clear()
-        self.userTemplateComboBox.addItems(fileNames)
-        if currentText:
-            self.userTemplateComboBox.setCurrentText(currentText)
-        if self.userTemplateComboBox.currentText() != currentText:
+        current_filename = self.userTemplateComboBox.currentData()
+        logger.debug(f"current_filename: {current_filename}")
+        populate_soar_template_combo(self.userTemplateComboBox, fileNames, current_filename)
+        if current_filename and self.userTemplateComboBox.currentData() != current_filename:
             self.userTemplateComboBox.setCurrentIndex(-1)
             paramConfig.set(self.userTemplate, None)
         self.createTopRightInfoBar(self.tr("Refresh: "), self.tr("Successful"), 300)
@@ -200,46 +215,6 @@ class SoarToTheBeatMacroReplayWidget(QWidget):
         fileNames = [f.name for f in path.glob('*.txt')]
         logger.debug(f"fileNames: {fileNames}")
         return fileNames
-
-    def getTemplates(self):
-        templates = [
-            "02_星云漫游_《论灵魂De Anima》_困难.txt",
-            "02_星云漫游_《论灵魂De Anima》_普通.txt",
-            "03_星云漫游_《万千星语》_困难.txt",
-            "03_星云漫游_《万千星语》_普通.txt",
-            "04_星云漫游_《此刻寻光星间》_困难.txt",
-            "04_星云漫游_《此刻寻光星间》_普通.txt",
-            "05_星云漫游_《致那暖明黄金》_困难.txt",
-            "05_星云漫游_《致那暖明黄金》_普通.txt",
-            "06_行星探索_《悠忽舞于梦中》_困难.txt",
-            "06_行星探索_《悠忽舞于梦中》_普通.txt",
-            "07_行星探索_《愿戴荣光坠入天渊》_普通.txt",
-            "08_行星探索_《Daisy Crown》_普通.txt",
-            "09_行星探索_《逐光筑昼》_普通.txt",
-            "10_恒星冒险_《光耀诸天群海》_普通.txt",
-            "11_恒星冒险_《于无羁之昼点亮真彩(Throttle Up!)》_普通.txt",
-            "12_恒星冒险_《烈阳啊，请见我真名》_普通.txt",
-            "13_恒星冒险_《死秽失乐福音》_普通.txt",
-            "14_Musedash_《雨后甜点》_普通.txt",
-            "15_Musedash_《Final Step！》_普通.txt",
-            "16_Musedash_《Cthugha》_普通.txt",
-        ]
-        # 定义难度优先级映射
-        difficulty_order = {"简单": 0, "普通": 1, "困难": 2}
-
-        def sort_key(filename):
-            # 提取序号（前两个字符）
-            num = int(filename[:2])
-
-            # 提取难度（在最后一个下划线和 .txt 之间）
-            parts = filename[:-4].split('_')  # 去掉.txt后按_分割
-            difficulty = parts[-1]  # 最后一部分就是难度
-
-            # 返回排序元组
-            return num, difficulty_order.get(difficulty, 9)
-
-        templates.sort(key=sort_key)
-        return templates
 
     def createTopRightInfoBar(self, title: str, content: str, duration: int):
         InfoBar.success(
@@ -365,6 +340,9 @@ class EventsWidget(ScrollArea):
         self.__initLayout()
         self.__connectSignalToSlot()
         self.__loadConfig()
+
+    def refreshDropdownLabels(self):
+        self.soarToTheBeatMacroReplayWidget.refreshTemplateComboLabels()
 
     def __initLayout(self):
         self.soarToTheBeatLayout.addWidget(self.soarToTheBeatMacroReplayCheckBox)

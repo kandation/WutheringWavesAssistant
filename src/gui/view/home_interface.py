@@ -440,6 +440,8 @@ class HomeV2Interface(ScrollArea):
     def __connectSignalToSlot(self):
         self.basicSettingWidget.langComboBox.currentIndexChanged.connect(
             lambda _: self.contentWidget.daily.refreshDropdownLabels())
+        self.basicSettingWidget.langComboBox.currentIndexChanged.connect(
+            lambda _: self.contentWidget.events.refreshDropdownLabels())
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

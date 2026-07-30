@@ -75,6 +75,17 @@
     </message>
 </context>
 <context>
+    <name>BossRushTask</name>
+    <message>
+        <source>参数异常</source>
+        <translation>พารามิเตอร์ผิดปกติ</translation>
+    </message>
+    <message>
+        <source>未选择boss</source>
+        <translation>ยังไม่ได้เลือกบอส</translation>
+    </message>
+</context>
+<context>
     <name>BossRushWidget</name>
     <message>
         <source>任意配队，人数不限，建议带奶，建议1280x720最低画质挂机还省电。
@@ -93,6 +104,10 @@
     <message>
         <source>多选</source>
         <translation>เลือกหลาย</translation>
+    </message>
+    <message>
+        <source>施工中...</source>
+        <translation>กำลังพัฒนา...</translation>
     </message>
 </context>
 <context>

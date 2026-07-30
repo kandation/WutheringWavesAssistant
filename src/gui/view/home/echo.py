@@ -1,6 +1,6 @@
 import logging
 
-from PySide6.QtCore import Qt, Signal, QSize, QEvent, QCoreApplication
+from PySide6.QtCore import Qt, Signal, QSize, QEvent
 from PySide6.QtGui import QIcon, QColor, QIntValidator
 from PySide6.QtWidgets import (QWidget, QLabel, QFileDialog, QFrame, QVBoxLayout, QButtonGroup, QHBoxLayout,
                                QPushButton, QApplication, QSizePolicy, QFormLayout, QCheckBox, QGridLayout)
@@ -15,6 +15,7 @@ from qfluentwidgets import (FluentIcon as FIF, OptionsSettingCard, SwitchSetting
 
 from src.gui.common.config import paramConfig, BossNameEnum
 from src.gui.common.globals import globalParam, globalSignal
+from src.gui.common.i18n_display import boss_display_name
 from src.gui.common.style_sheet import StyleSheet
 from src.gui.common.task import BaseTask, ValidationResult, TaskId
 from src.gui.components.check_box import CheckCard
@@ -59,20 +60,19 @@ class BossRushTask(EchoTask):
         super().__init__(TaskId.AutoBossProcessTask, "BossRush", widget)
 
     def validate(self, **kwargs) -> ValidationResult:
-        context = self.__class__.__name__
         try:
             # logger.debug(f"paramConfig: {paramConfig.toDict}")
             if not paramConfig.bossName.value:
                 return ValidationResult(
                     success=False,
-                    message=QCoreApplication.translate(context, "未选择boss")
+                    message=self.tr("未选择boss")
                 )
             return ValidationResult(success=True)
         except Exception as e:
             logger.error(e)
         return ValidationResult(
             success=False,
-            message=QCoreApplication.translate(context, "参数异常")
+            message=self.tr("参数异常")
         )
 
     def submitTask(self, start: bool):
@@ -112,7 +112,7 @@ class BossRushWidget(QWidget):
         # for boss in BossNameEnum:
         new_boss = 4  # TODO 增加boss参数，根据版本区最新版本boss数量
         for i, boss in enumerate(reversed(list(BossNameEnum))):
-            checkCard = CheckCard(boss.value, parent=self)
+            checkCard = CheckCard(boss_display_name(boss), parent=self)
             if i < new_boss or boss == BossNameEnum.NightmareMourningAix:
                 checkCard.setBackground()
             self.checkCards[boss] = checkCard
@@ -127,7 +127,7 @@ class BossRushWidget(QWidget):
 
         self.lineEdit.setMaximumWidth(300)
         self.lineEdit.setClearButtonEnabled(True)
-        self.lineEdit.setPlaceholderText('施工中...')
+        self.lineEdit.setPlaceholderText(self.tr('施工中...'))
 
         for boss, card in self.checkCards.items():
             self.flowLayout.addWidget(card)

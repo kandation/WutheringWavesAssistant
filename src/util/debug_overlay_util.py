@@ -25,6 +25,7 @@ _OVERLAY_CLASS = "WWAStoryDebugOverlay"
 _AC_SRC_OVER = 0x00
 _AC_SRC_ALPHA = 0x01
 _ULW_ALPHA = 0x02
+_CLICK_MARKER_RADIUS = 8
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class OverlayBox:
     label: str = ""
     color_bgr: tuple[int, int, int] = (0, 255, 255)
     is_hit: bool = False
+    click_xy: tuple[int, int] | None = None
 
 
 class _BLENDFUNCTION(ctypes.Structure):
@@ -94,6 +96,20 @@ class StoryDebugOverlay:
         except Exception:
             logger.debug("Overlay message pump failed", exc_info=True)
 
+    @staticmethod
+    def _draw_click_marker_pil(draw: ImageDraw.ImageDraw, cx: int, cy: int, color: tuple[int, int, int, int]):
+        r = _CLICK_MARKER_RADIUS
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=color, width=2)
+        draw.line([cx - r - 2, cy, cx + r + 2, cy], fill=color, width=2)
+        draw.line([cx, cy - r - 2, cx, cy + r + 2], fill=color, width=2)
+
+    @staticmethod
+    def _draw_click_marker_cv2(frame: np.ndarray, cx: int, cy: int, color: tuple[int, int, int]):
+        r = _CLICK_MARKER_RADIUS
+        cv2.circle(frame, (cx, cy), r, color, 2, cv2.LINE_AA)
+        cv2.line(frame, (cx - r - 2, cy), (cx + r + 2, cy), color, 2, cv2.LINE_AA)
+        cv2.line(frame, (cx, cy - r - 2), (cx, cy + r + 2), color, 2, cv2.LINE_AA)
+
     def _show_preview(
         self,
         src_img: np.ndarray,
@@ -116,6 +132,8 @@ class StoryDebugOverlay:
                     1,
                     cv2.LINE_AA,
                 )
+            if box.click_xy is not None:
+                self._draw_click_marker_cv2(frame, box.click_xy[0], box.click_xy[1], color)
         cv2.namedWindow(_WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
         cv2.imshow(_WINDOW_NAME, frame)
         cv2.setWindowProperty(_WINDOW_NAME, cv2.WND_PROP_TOPMOST, 1)
@@ -233,6 +251,10 @@ class StoryDebugOverlay:
             draw.rectangle([bx1, by1, bx2, by2], outline=outline, width=width)
             if box.label:
                 draw.text((bx1 + 2, max(by1 - 14, 0)), box.label, fill=outline)
+            if box.click_xy is not None:
+                cx = int(box.click_xy[0] * scale_x)
+                cy = int(box.click_xy[1] * scale_y)
+                self._draw_click_marker_pil(draw, cx, cy, outline)
 
         self._ensure_overlay_hwnd(sx1, sy1, w, h)
         self._blit_layered(self._hwnd, image, sx1, sy1)

@@ -161,6 +161,7 @@
 
         <file>i18n/gallery.zh_CN.qm</file>
         <file>i18n/gallery.zh_HK.qm</file>
+        <file>i18n/gallery.th_TH.qm</file>
 
     </qresource>
 </RCC>

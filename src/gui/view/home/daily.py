@@ -64,13 +64,13 @@ class DailyWidget(ScrollArea):
         self.container = QWidget(self)
         self.mainLayout = QVBoxLayout(self.container)
 
-        self.contentTitleLabel = QLabel(self.tr("ตั้งค่างาน"), self.container)
+        self.contentTitleLabel = QLabel(self.tr("任务设置"), self.container)
         self.gridLayout = QGridLayout()
         self.__initGridLayout()
 
         self.contentBottomLayout = QHBoxLayout()
-        self.resetButton = PushButton(self.tr("รีเซ็ต"), self.container)
-        self.aboutButton = PushButton(self.tr('เกี่ยวกับ'), self.container)
+        self.resetButton = PushButton(self.tr("重置"), self.container)
+        self.aboutButton = PushButton(self.tr('关于'), self.container)
 
         self.__initWidget()
 
@@ -232,9 +232,9 @@ class DailyWidget(ScrollArea):
 
     def __initGridLayout(self):
         # self.weeklyChallengeCheckBox.setStyleSheet("QCheckBox { border: 2px solid red; }")
-        self.weeklyChallengeCheckBox = CheckBox(self.tr("บอสสัปดาห์:"), self.container)
+        self.weeklyChallengeCheckBox = CheckBox(self.tr("周本:"), self.container)
         self.weeklyChallengeComboBox = ComboBox(self.container)
-        self.weeklyChallengeComboBox.addItem(self.tr("ไม่เลือก"), userData=None)
+        self.weeklyChallengeComboBox.addItem(self.tr("不选择"), userData=None)
         # self.weeklyChallengeComboBox.addItem(self.tr("自动 - 最新BOSS"), userData="Auto")
         for i in range(len(self.weeklyChallenge)):
             text = self.tr("{challenge} - {boss}").format(
@@ -245,9 +245,9 @@ class DailyWidget(ScrollArea):
         self.weeklyChallengeComboBox.setCurrentIndex(0)
         # self.weeklyChallengeSettingButton = ToggleToolButton(FIF.SETTING, self)
 
-        self.tacetSuppressionCheckBox = CheckBox(self.tr("วัสดุ Echo:"), self.container)
+        self.tacetSuppressionCheckBox = CheckBox(self.tr("声骸材料:"), self.container)
         self.tacetSuppressionComboBox = ComboBox(self.container)
-        self.tacetSuppressionComboBox.addItem(self.tr("ไม่เลือก"), userData=None)
+        self.tacetSuppressionComboBox.addItem(self.tr("不选择"), userData=None)
         for i in range(len(self.tacetSuppression)):
             text = self.tr("{challenge} - {region}").format(
                 challenge=self.i18ntr(self.tacetSuppression[i]).raw,
@@ -258,9 +258,9 @@ class DailyWidget(ScrollArea):
                 self.tacetSuppressionComboBox.setItemEnabled(self.tacetSuppressionComboBox.count() - 1, False)
         # self.tacetSuppressionSettingButton = ToggleToolButton(FIF.SETTING, self)
 
-        self.forgeryChallengeCheckBox = CheckBox(self.tr("วัสดุอาวุธและสกิล:"), self.container)
+        self.forgeryChallengeCheckBox = CheckBox(self.tr("武器及技能材料:"), self.container)
         self.forgeryChallengeComboBox = ComboBox(self.container)
-        self.forgeryChallengeComboBox.addItem(self.tr("ไม่เลือก"), userData=None)
+        self.forgeryChallengeComboBox.addItem(self.tr("不选择"), userData=None)
         for i in range(len(self.forgeryChallenge)):
             text = self.tr("{challenge} - {weapon} - {region}").format(
                 challenge=self.i18ntr(self.forgeryChallenge[i]).raw,
@@ -272,19 +272,19 @@ class DailyWidget(ScrollArea):
                 self.forgeryChallengeComboBox.setItemEnabled(self.forgeryChallengeComboBox.count() - 1, False)
         # self.forgeryChallengeSettingButton = ToggleToolButton(FIF.SETTING, self)
 
-        self.bossChallengeCheckBox = CheckBox(self.tr("วัสดุทะลวง Resonator:"), self.container)
+        self.bossChallengeCheckBox = CheckBox(self.tr("共鸣者突破材料:"), self.container)
         self.bossChallengeComboBox = ComboBox(self.container)
-        self.bossChallengeComboBox.addItem(self.tr("ไม่เลือก"), userData=None)
+        self.bossChallengeComboBox.addItem(self.tr("不选择"), userData=None)
         for i in range(len(self.bossChallenge)):
             self.bossChallengeComboBox.addItem(self.i18ntr(self.bossChallenge[i]).raw, userData=self.bossChallenge[i])
             if i > -1:
                 self.bossChallengeComboBox.setItemEnabled(self.bossChallengeComboBox.count() - 1, False)
         # self.bossChallengeSettingButton = ToggleToolButton(FIF.SETTING, self)
 
-        self.nightmarePurificationCheckBox = CheckBox(self.tr("หมู่มอนส์ฝันร้าย:"), self.container)
+        self.nightmarePurificationCheckBox = CheckBox(self.tr("梦魇聚落:"), self.container)
         self.nightmarePurificationComboBox = ComboBox(self.container)
-        self.nightmarePurificationComboBox.addItem(self.tr("ไม่เลือก"), userData=None)
-        self.nightmarePurificationComboBox.addItem(self.tr("เลือกทั้งหมด"), userData="All")
+        self.nightmarePurificationComboBox.addItem(self.tr("不选择"), userData=None)
+        self.nightmarePurificationComboBox.addItem(self.tr("全选"), userData="All")
         self.nightmarePurificationComboBox.setItemEnabled(self.nightmarePurificationComboBox.count() - 1, False)
         for i in range(len(self.nightmarePurification)):
             self.nightmarePurificationComboBox.addItem(
@@ -292,30 +292,30 @@ class DailyWidget(ScrollArea):
                 userData=self.nightmarePurification[i])
         # self.nightmarePurificationSettingButton = ToggleToolButton(FIF.SETTING, self)
 
-        self.tacetDiscordNestCheckBox = CheckBox(self.tr("หมู่มอนส์สะท้อน:"), self.container)
+        self.tacetDiscordNestCheckBox = CheckBox(self.tr("残象聚落:"), self.container)
         self.tacetDiscordNestComboBox = ComboBox(self.container)
-        self.tacetDiscordNestComboBox.addItem(self.tr("ไม่เลือก"), userData=None)
-        self.tacetDiscordNestComboBox.addItem(self.tr("เลือกทั้งหมด"), userData="All")
+        self.tacetDiscordNestComboBox.addItem(self.tr("不选择"), userData=None)
+        self.tacetDiscordNestComboBox.addItem(self.tr("全选"), userData="All")
         # for i in range(len(self.tacetDiscordNest)):
         #     self.tacetDiscordNestComboBox.addItem(self.i18ntr(self.tacetDiscordNest[i]).raw, userData=self.tacetDiscordNest[i])
         # self.tacetDiscordNestSettingButton = ToggleToolButton(FIF.SETTING, self)
 
-        self.activityCheckBox = CheckBox(self.tr("รอยทางประจำวัน:"), self.container)
+        self.activityCheckBox = CheckBox(self.tr("活跃行迹:"), self.container)
         self.activityComboBox = ComboBox(self.container)
         # self.activityComboBox.addItem(self.tr("不选择"), userData=None)
-        self.activityComboBox.addItem(self.tr("อัตโนมัติ"), userData="Auto")
+        self.activityComboBox.addItem(self.tr("自动"), userData="Auto")
         # self.activitySettingButton = ToggleToolButton(FIF.SETTING, self)
 
-        self.mailCheckBox = CheckBox(self.tr("เมล:"), self.container)
+        self.mailCheckBox = CheckBox(self.tr("邮件:"), self.container)
         self.mailComboBox = ComboBox(self.container)
         #         self.mailComboBox.addItem(self.tr("不选择"), userData=None)
-        self.mailComboBox.addItem(self.tr("อัตโนมัติ"), userData="Auto")
+        self.mailComboBox.addItem(self.tr("自动"), userData="Auto")
         # self.mailSettingButton = ToggleToolButton(FIF.SETTING, self)
 
-        self.pioneerPodcastCheckBox = CheckBox(self.tr("วิทยุ:"), self.container)
+        self.pioneerPodcastCheckBox = CheckBox(self.tr("先约电台:"), self.container)
         self.pioneerPodcastComboBox = ComboBox(self.container)
         #         self.pioneerPodcastComboBox.addItem(self.tr("不选择"), userData=None)
-        self.pioneerPodcastComboBox.addItem(self.tr("อัตโนมัติ"), userData="Auto")
+        self.pioneerPodcastComboBox.addItem(self.tr("自动"), userData="Auto")
         # self.pioneerPodcastSettingButton = ToggleToolButton(FIF.SETTING, self)
 
         self.buttonGroup = [
@@ -636,10 +636,10 @@ class DailyWidget(ScrollArea):
     def __showAboutFlyout(self):
         Flyout.create(
             # icon=InfoBarIcon.INFORMATION,
-            title='关于:',
+            title=self.tr('关于') + ':',
             content=self.tr(
-                'กำลังทดสอบ เปิดให้ใช้งานบางด่าน มีปัญหาถามในกลุ่ม พร้อมคลิปหรือ screenshot หน้าต่างเกมและ log สคริปต์ ปิด uid'
-                '\nก่อนใช้แนะนำปิด MSI Afterburner, NVIDIA overlay, Mod ฯลฯ เพื่อไม่ให้บัง UI เกม'
+                '测试中，仅开放部分关卡。有问题及时群里反馈，最好录屏，或者截图游戏窗口和脚本日志，遮住uid。'
+                '\n使用前建议关闭微星小飞机、英伟达统计数据、Mod等，避免遮挡游戏ui影响识别'
             ),
             target=self.aboutButton,
             parent=self.window()

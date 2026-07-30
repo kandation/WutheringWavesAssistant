@@ -94,17 +94,17 @@ class BasicSettingWidget(QWidget):
             "CPU",
         ]
         self.deviceDesc = [
-            "自动",
+            self.tr("自动"),
             "GPU-CUDA",
             "CPU",
         ]
 
         self.mainLayout = QVBoxLayout(self)
 
-        self.titleLabel = QLabel(self.tr("ตั้งค่าพื้นฐาน"), self)
+        self.titleLabel = QLabel(self.tr("基础设置"), self)
 
         self.langLayout = QHBoxLayout()
-        self.langLabel = QLabel(self.tr("ภาษาเกม:"), self)
+        self.langLabel = QLabel(self.tr("游戏文本:"), self)
         self.langComboBox = ComboBox(self)
         # self.langComboBox.setPlaceholderText(self.tr("{text} - {sign}").format(
         #     text=self.langDesc[0], sign=self.lang[0].value))
@@ -117,7 +117,7 @@ class BasicSettingWidget(QWidget):
                 self.langComboBox.setItemEnabled(self.langComboBox.count() - 1, False)
 
         self.deviceLayout = QHBoxLayout()
-        self.deviceLabel = QLabel(self.tr("อุปกรณ์รัน:"), self)
+        self.deviceLabel = QLabel(self.tr("运行设备:"), self)
         self.deviceComboBox = ComboBox(self)
         self.deviceComboBox.setPlaceholderText(self.tr("{text}").format(text=self.deviceDesc[0]))
         for i in range(len(self.device)):
@@ -203,11 +203,11 @@ class ContentWidget(QWidget):
         # self.help.setAlignment(Qt.AlignVCenter| Qt.AlignHCenter)
 
         # add items to pivot
-        self.addSubInterface(self.daily, 'daily', self.tr("รายวัน"))
-        self.addSubInterface(self.echo, 'echo', self.tr("Echo"))
-        self.addSubInterface(self.explore, 'explore', self.tr("สำรวจ"))
-        self.addSubInterface(self.story, 'story', self.tr("เนื้อเรื่อง"))
-        self.addSubInterface(self.events, 'events', self.tr("อีเวนต์"))
+        self.addSubInterface(self.daily, 'daily', self.tr("日常"))
+        self.addSubInterface(self.echo, 'echo', self.tr("声骸"))
+        self.addSubInterface(self.explore, 'explore', self.tr("探索"))
+        self.addSubInterface(self.story, 'story', self.tr("剧情"))
+        self.addSubInterface(self.events, 'events', self.tr("活动"))
         # self.addSubInterface(self.help, 'help', self.tr("帮助"))
 
         self.currentTask = self.daily
@@ -256,7 +256,7 @@ class BottomWidget(CardWidget):
 
         self.mainLayout = QHBoxLayout(self)
 
-        self.titleLabel = QLabel(self.tr("เริ่ม"), self)
+        self.titleLabel = QLabel(self.tr("运行"), self)
         self.titleLabel.setObjectName('titleLabel')
 
         # 双倍提醒
@@ -358,9 +358,9 @@ class BottomWidget(CardWidget):
         v = Version(re.search(r"\d+(?:\.\d+){0,2}", __version__).group())
         if (v.major, v.minor) == (3, 5):
             if TimeRange.from_str("2026-07-23 04:00", "2026-07-30 04:00").contains():
-                tipsText = '<b><font color="red">今日: 双倍材料本</font></b>'
+                tipsText = self.tr('<b><font color="red">今日: 双倍材料本</font></b>')
             elif TimeRange.from_str("2026-08-12 04:00", "2026-08-19 04:00").contains():
-                tipsText = '<b><font color="red">今日: 双倍无音区</font></b>'
+                tipsText = self.tr('<b><font color="red">今日: 双倍无音区</font></b>')
         return tipsText
 
     def createTopRightInfoBar(self, title: str, content: str, duration: int):

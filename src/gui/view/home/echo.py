@@ -202,7 +202,7 @@ class BossRushWidget(QWidget):
     def __showAboutFlyout(self):
         Flyout.create(
             # icon=InfoBarIcon.INFORMATION,
-            title='关于:',
+            title=self.tr('关于') + ':',
             content=self.tr(
                 '任意配队，人数不限，建议带奶，建议1280x720最低画质挂机还省电。'
                 '\n若游戏内没有1280x720分辨率选项，或修改后游戏微闪一下没有反应，这是游戏的问题，换成其他修改后有效的小分辨率，如1600x900。'

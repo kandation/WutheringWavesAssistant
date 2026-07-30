@@ -255,7 +255,7 @@ class SoarToTheBeatMacroReplayWidget(QWidget):
     def showAboutFlyout(self):
         Flyout.create(
             # icon=InfoBarIcon.INFORMATION,
-            title='关于:',
+            title=self.tr('关于') + ':',
             content=self.tr(
                 '模板为人工录制，本身并不完美，因设备、网络等影响，可能存在极小的正负延迟，对不上轴ESC重跑即可，都能3S全奖励。' +
                 '作者也打不出100%，部分歌曲只有90%+，欢迎使用录制功能，将你的模板文件、结算分数、按键设置截图打包分享到群里，由群主校准后合进脚本内。\n' +

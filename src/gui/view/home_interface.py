@@ -143,7 +143,7 @@ class HomeInterface(ScrollArea):
             icon=":/gallery/images/controls/Checkbox.png",
             title="自动刷boss",
             content=self.tr(
-                "支持任意分辨率，建议1280x720最低画质省电"),
+                "รองรับทุกความละเอียด แนะนำ 1280x720 คุณภาพต่ำสุดประหยัดไฟ"),
             routeKey="basicInputInterface",
             index=0,
             task_name="AutoBossProcessTask",
@@ -152,7 +152,7 @@ class HomeInterface(ScrollArea):
         basicInputView.addSampleCard(
             icon=":/gallery/images/controls/Checkbox.png",
             title="自动拾取",
-            content=self.tr("自动拾取路过的声骸、草药、食材、宝箱\n任意分辨率"),
+            content=self.tr("เก็บ Echo, สมุนไพร, วัตถุดิบ, หีบสมบัติแบบอัตโนมัติ\nทุกความละเอียด"),
             routeKey="basicInputInterface",
             index=8,
             task_name="AutoPickupProcessTask",
@@ -161,7 +161,7 @@ class HomeInterface(ScrollArea):
             icon=":/gallery/images/controls/Checkbox.png",
             title="沉浸式剧情",
             content=self.tr(
-                "剧情党使用，自动选择对话\n解放双手，体验完整人生，任意分辨率"),
+                "สำหรับคนรักเนื้อเรื่อง เลือกบทสนทนาอัตโนมัติ\nปล่อยมือ ดื่มด่ำกับเนื้อเรื่อง ทุกความละเอียด"),
             routeKey="basicInputInterface",
             index=9,
             task_name="AutoStoryEnjoyProcessTask",
@@ -170,7 +170,7 @@ class HomeInterface(ScrollArea):
             icon=":/gallery/images/controls/Checkbox.png",
             title="跳过剧情",
             content=self.tr(
-                "SKIP，SKIP，SKIP，跳过赛博人生\n任意分辨率"),
+                "SKIP SKIP SKIP ข้ามเนื้อเรื่องไซเบอร์\nทุกความละเอียด"),
             routeKey="basicInputInterface",
             index=10,
             task_name="AutoStorySkipProcessTask",
@@ -335,10 +335,10 @@ class BasicSettingWidget(QWidget):
 
         self.mainLayout = QVBoxLayout(self)
 
-        self.titleLabel = QLabel(self.tr("基础设置"), self)
+        self.titleLabel = QLabel(self.tr("ตั้งค่าพื้นฐาน"), self)
 
         self.langLayout = QHBoxLayout()
-        self.langLabel = QLabel(self.tr("游戏文本:"), self)
+        self.langLabel = QLabel(self.tr("ภาษาเกม:"), self)
         self.langComboBox = ComboBox(self)
         # self.langComboBox.setPlaceholderText(self.tr("{text} - {sign}").format(
         #     text=self.langDesc[0], sign=self.lang[0].value))
@@ -351,7 +351,7 @@ class BasicSettingWidget(QWidget):
                 self.langComboBox.setItemEnabled(self.langComboBox.count() - 1, False)
 
         self.deviceLayout = QHBoxLayout()
-        self.deviceLabel = QLabel(self.tr("运行设备:"), self)
+        self.deviceLabel = QLabel(self.tr("อุปกรณ์รัน:"), self)
         self.deviceComboBox = ComboBox(self)
         self.deviceComboBox.setPlaceholderText(self.tr("{text}").format(text=self.deviceDesc[0]))
         for i in range(len(self.device)):
@@ -437,11 +437,11 @@ class ContentWidget(QWidget):
         # self.help.setAlignment(Qt.AlignVCenter| Qt.AlignHCenter)
 
         # add items to pivot
-        self.addSubInterface(self.daily, 'daily', self.tr("日常"))
-        self.addSubInterface(self.echo, 'echo', self.tr("声骸"))
-        self.addSubInterface(self.story, 'story', self.tr("剧情"))
-        self.addSubInterface(self.explore, 'explore', self.tr("探索"))
-        self.addSubInterface(self.events, 'events', self.tr("活动"))
+        self.addSubInterface(self.daily, 'daily', self.tr("รายวัน"))
+        self.addSubInterface(self.echo, 'echo', self.tr("Echo"))
+        self.addSubInterface(self.story, 'story', self.tr("เนื้อเรื่อง"))
+        self.addSubInterface(self.explore, 'explore', self.tr("สำรวจ"))
+        self.addSubInterface(self.events, 'events', self.tr("อีเวนต์"))
         # self.addSubInterface(self.help, 'help', self.tr("帮助"))
 
         self.currentTask = self.daily
@@ -490,7 +490,7 @@ class BottomWidget(CardWidget):
 
         self.mainLayout = QHBoxLayout(self)
 
-        self.titleLabel = QLabel(self.tr("运行"), self)
+        self.titleLabel = QLabel(self.tr("เริ่ม"), self)
         self.titleLabel.setObjectName('titleLabel')
 
         # 双倍提醒

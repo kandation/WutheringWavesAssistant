@@ -6,26 +6,32 @@ import numpy as np
 from pynput import keyboard
 
 from src.core.contexts import Context
+from src.core.geometry import IconBox
 from src.core.i18n import Language
 from src.core.interface import ControlService, OCRService, ImgService, WindowService, ODService, BossInfoService
 from src.core.pages import Page, Position, TextMatch, ConditionalAction, ImageMatch
 from src.core.regions import DynamicPosition, TextPosition
 from src.service.page_event_service import PageEventAbstractService
 from src.util import file_util, img_util, img_template_util
+from src.util.debug_overlay_util import OverlayBox, StoryDebugOverlay
 from src.util.wrap_util import timeit
 
 logger = logging.getLogger(__name__)
 
-# Template match ROIs are normalized to 1280x720 reference coordinates.
-_STORY_SKIP_TEMPLATE = "StorySkip.png"
+# ROIs normalized to 1280x720 reference coordinates.
 _STORY_SUMMARY_CLOSE_TEMPLATE = "StorySummaryClose.png"
-_STORY_SKIP_MATCH_CONFIDENCE = 0.70
-_STORY_SKIP_SCALE_MIN = 0.35
-_STORY_SKIP_SCALE_MAX = 1.5
-_STORY_SKIP_SCALE_STEP = 0.02
-_BOTTOM_SKIP_ROI_RATE = (0.0, 520 / 720, 1.0, 1.0)
-_SUMMARY_SKIP_ROI_RATE = (450 / 1280, 520 / 720, 950 / 1280, 700 / 720)
-_SUMMARY_CLOSE_ROI_RATE = (1100 / 1280, 0.0, 1.0, 100 / 720)
+_CLOSE_MATCH_CONFIDENCE = 0.70
+_TEMPLATE_SCALE_MIN = 0.35
+_TEMPLATE_SCALE_MAX = 1.5
+_TEMPLATE_SCALE_STEP = 0.02
+# Bottom Skip pill (~70% X, 71% Y on Summary / dialogue screens).
+_BOTTOM_SKIP_ROI_RATE = (680 / 1280, 470 / 720, 1080 / 1280, 580 / 720)
+# Summary dialog lower area (Resume left, Skip right).
+_SUMMARY_SKIP_ROI_RATE = (280 / 1280, 500 / 720, 1050 / 1280, 700 / 720)
+# 4-point close X (~94% X, 8% Y).
+_SUMMARY_CLOSE_ROI_RATE = (1150 / 1280, 0.0, 1.0, 120 / 720)
+_TOP_LEFT_SKIP_ROI_RATE = (0.0, 0.0, 200 / 1280, 150 / 720)
+_SKIP_TEXT_PATTERN = r"^(跳过|S?KI[PE].{0,3}|Skip)$"
 
 
 class DynamicFpsLimit:
@@ -98,10 +104,13 @@ class AutoStoryServiceImpl(PageEventAbstractService):
         # fps limit
         self._dynamic_fps_limit = DynamicFpsLimit()
 
-        self._story_skip_template = img_util.read_img(
-            file_util.get_assets_template(_STORY_SKIP_TEMPLATE))
         self._story_summary_close_template = img_util.read_img(
             file_util.get_assets_template(_STORY_SUMMARY_CLOSE_TEMPLATE))
+        app_cfg = context.config.app
+        self._debug_overlay = StoryDebugOverlay.from_config(
+            app_cfg.StoryDebugMode,
+            mode=getattr(app_cfg, "StoryDebugOverlayMode", "overlay"),
+        )
 
     @staticmethod
     def _roi_from_rate(src_img: np.ndarray, rate: tuple[float, float, float, float]) -> tuple[int, int, int, int]:
@@ -118,20 +127,66 @@ class AutoStoryServiceImpl(PageEventAbstractService):
             src_img: np.ndarray,
             template: np.ndarray,
             roi_rate: tuple[float, float, float, float],
-    ):
+    ) -> IconBox | None:
         roi = self._roi_from_rate(src_img, roi_rate)
         return img_template_util.find_icon_in_roi_accelerated(
             src_img,
             template,
             roi=roi,
-            scale_min=_STORY_SKIP_SCALE_MIN,
-            scale_max=_STORY_SKIP_SCALE_MAX,
-            scale_step=_STORY_SKIP_SCALE_STEP,
+            scale_min=_TEMPLATE_SCALE_MIN,
+            scale_max=_TEMPLATE_SCALE_MAX,
+            scale_step=_TEMPLATE_SCALE_STEP,
         )
 
-    def _click_template_match(self, bbox, *, label: str) -> bool:
-        if bbox is None or bbox.score < _STORY_SKIP_MATCH_CONFIDENCE:
-            return False
+    def _detect_summary_close(self, src_img: np.ndarray) -> IconBox | None:
+        bbox = self._match_story_template(
+            src_img, self._story_summary_close_template, _SUMMARY_CLOSE_ROI_RATE)
+        if bbox is None or bbox.score < _CLOSE_MATCH_CONFIDENCE:
+            return None
+        return bbox
+
+    @staticmethod
+    def _map_ocr_match_to_src(
+            src_img: np.ndarray,
+            img: np.ndarray,
+            roi_pos: Position,
+            match: TextPosition,
+    ) -> TextPosition:
+        ratio = src_img.shape[0] / img.shape[0]
+        return match.build(
+            x1=int((match.x1 + roi_pos.x1) * ratio),
+            y1=int((match.y1 + roi_pos.y1) * ratio),
+            x2=int((match.x2 + roi_pos.x1) * ratio),
+            y2=int((match.y2 + roi_pos.y1) * ratio),
+            confidence=match.confidence,
+            text=match.text,
+        )
+
+    def _ocr_find_skip_in_roi(
+            self,
+            src_img: np.ndarray,
+            img: np.ndarray,
+            roi_rate: tuple[float, float, float, float],
+    ) -> TextPosition | None:
+        dyn_pos = DynamicPosition(rate=roi_rate)
+        h, w = img.shape[:2]
+        roi_pos = dyn_pos.to_position(h, w)
+        match = self._ocr_service.find_text(_SKIP_TEXT_PATTERN, img, dyn_pos)
+        if match is None:
+            return None
+        return self._map_ocr_match_to_src(src_img, img, roi_pos, match)
+
+    def _click_position(self, position: Position, *, label: str) -> bool:
+        x, y = position.center
+        logger.info("Click %s at (%s, %s) text=%r", label, x, y, getattr(position, "text", ""))
+        time.sleep(0.1)
+        self._control_service.click(x, y)
+        time.sleep(0.1)
+        self._control_service.click(x, y)
+        time.sleep(0.1)
+        return True
+
+    def _click_icon_box(self, bbox: IconBox, *, label: str) -> bool:
         x, y = bbox.center
         logger.info("Template match %s score=%.3f at (%s, %s)", label, bbox.score, x, y)
         time.sleep(0.1)
@@ -141,20 +196,80 @@ class AutoStoryServiceImpl(PageEventAbstractService):
         time.sleep(0.1)
         return True
 
-    def _try_template_summary_close(self, src_img: np.ndarray) -> bool:
-        bbox = self._match_story_template(
-            src_img, self._story_summary_close_template, _SUMMARY_CLOSE_ROI_RATE)
-        return self._click_template_match(bbox, label="summary-close")
+    def _roi_overlay_box(
+            self,
+            src_img: np.ndarray,
+            roi_rate: tuple[float, float, float, float],
+            label: str,
+            color_bgr: tuple[int, int, int],
+            *,
+            is_hit: bool = False,
+    ) -> OverlayBox:
+        x1, y1, x2, y2 = self._roi_from_rate(src_img, roi_rate)
+        return OverlayBox(x1, y1, x2, y2, label=label, color_bgr=color_bgr, is_hit=is_hit)
 
-    def _try_template_summary_skip(self, src_img: np.ndarray) -> bool:
-        bbox = self._match_story_template(
-            src_img, self._story_skip_template, _SUMMARY_SKIP_ROI_RATE)
-        return self._click_template_match(bbox, label="summary-skip")
+    def _update_debug_overlay(
+            self,
+            src_img: np.ndarray,
+            *,
+            close_bbox: IconBox | None,
+            bottom_skip: TextPosition | None,
+            summary_skip: TextPosition | None,
+    ):
+        if self._debug_overlay is None:
+            return
+        boxes = [
+            self._roi_overlay_box(
+                src_img, _BOTTOM_SKIP_ROI_RATE, "bottom-skip-roi", (0, 255, 255),
+                is_hit=bottom_skip is not None),
+            self._roi_overlay_box(
+                src_img, _SUMMARY_SKIP_ROI_RATE, "summary-skip-roi", (255, 200, 0),
+                is_hit=summary_skip is not None),
+            self._roi_overlay_box(
+                src_img, _SUMMARY_CLOSE_ROI_RATE, "summary-close-roi", (255, 0, 255),
+                is_hit=close_bbox is not None),
+            self._roi_overlay_box(
+                src_img, _TOP_LEFT_SKIP_ROI_RATE, "top-left-skip-roi", (0, 200, 0)),
+        ]
+        if close_bbox is not None:
+            boxes.append(OverlayBox(
+                close_bbox.x1, close_bbox.y1, close_bbox.x2, close_bbox.y2,
+                label="close-x", color_bgr=(255, 0, 255), is_hit=True))
+        if bottom_skip is not None:
+            boxes.append(OverlayBox(
+                bottom_skip.x1, bottom_skip.y1, bottom_skip.x2, bottom_skip.y2,
+                label="bottom-skip", color_bgr=(0, 255, 255), is_hit=True))
+        if summary_skip is not None:
+            boxes.append(OverlayBox(
+                summary_skip.x1, summary_skip.y1, summary_skip.x2, summary_skip.y2,
+                label="summary-skip", color_bgr=(255, 200, 0), is_hit=True))
+        try:
+            client_rect = self._window_service.get_client_rect_on_screen()
+        except Exception:
+            client_rect = None
+        self._debug_overlay.update(src_img, boxes, client_rect)
 
-    def _try_template_bottom_skip(self, src_img: np.ndarray) -> bool:
-        bbox = self._match_story_template(
-            src_img, self._story_skip_template, _BOTTOM_SKIP_ROI_RATE)
-        return self._click_template_match(bbox, label="bottom-skip")
+    def _handle_story_skip(self, src_img: np.ndarray, img: np.ndarray) -> bool:
+        """OCR + close-X template flow for Skip / Summary screens."""
+        close_bbox = self._detect_summary_close(src_img)
+        on_summary = close_bbox is not None
+        summary_skip = None
+        bottom_skip = None
+
+        if on_summary:
+            summary_skip = self._ocr_find_skip_in_roi(src_img, img, _SUMMARY_SKIP_ROI_RATE)
+            self._update_debug_overlay(
+                src_img, close_bbox=close_bbox, bottom_skip=summary_skip, summary_skip=summary_skip)
+            if summary_skip is not None:
+                return self._click_position(summary_skip, label="summary-skip-ocr")
+            return self._click_icon_box(close_bbox, label="summary-close")
+
+        bottom_skip = self._ocr_find_skip_in_roi(src_img, img, _BOTTOM_SKIP_ROI_RATE)
+        self._update_debug_overlay(
+            src_img, close_bbox=None, bottom_skip=bottom_skip, summary_skip=None)
+        if bottom_skip is not None:
+            return self._click_position(bottom_skip, label="bottom-skip-ocr")
+        return False
 
     def execute(self, **kwargs):
         if not self._window_service.is_foreground_window():
@@ -194,12 +309,7 @@ class AutoStoryServiceImpl(PageEventAbstractService):
         auto_npc_interact = False
         # 跳过剧情
         if self.skip_is_open:
-            # Summary screen: close X (top-right) or Skip in dialog area
-            if self._try_template_summary_close(src_img):
-                self.skip_btn_is_clicked = True
-                self.skip_btn_is_clicked_start_time = time.time()
-                return
-            if self._try_template_summary_skip(src_img):
+            if self._handle_story_skip(src_img, img):
                 self.skip_btn_is_clicked = True
                 self.skip_btn_is_clicked_start_time = time.time()
                 return
@@ -216,16 +326,10 @@ class AutoStoryServiceImpl(PageEventAbstractService):
                 self.skip_btn_is_clicked = False
                 return
 
-            # Fast template match for bottom Skip button
-            if self._try_template_bottom_skip(src_img):
-                self.skip_btn_is_clicked = True
-                self.skip_btn_is_clicked_start_time = time.time()
-                return
-
-            # OCR fallback for top-left Skip (legacy UI) and confirm dialogs
+            # OCR fallback for top-left Skip (legacy UI)
             if not ocr_results:
-                skip_text_match = self._skip_page.get_text_match_by_name("跳过|SKIP")
-                ocr_results = self._ocr_service.ocr(img, skip_text_match.position)
+                ocr_results = self._ocr_service.ocr(
+                    img, DynamicPosition(rate=_TOP_LEFT_SKIP_ROI_RATE))
             logger.debug("ocr_results: %s", ocr_results)
             if self.page_action(self._skip_page, src_img, img, ocr_results):
                 self.skip_btn_is_clicked = True

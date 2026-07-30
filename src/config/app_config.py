@@ -33,6 +33,12 @@ class AppConfig(BaseModel):
     EchoSynthesisDebugMode: bool = Field(
         True, title="声骸合成锁定功能DEBUG显示输出的开关"
     )
+    StoryDebugMode: bool = Field(
+        False, title="剧情跳过DEBUG叠加层开关（截图叠加，不读取游戏内存）"
+    )
+    StoryDebugOverlayMode: str = Field(
+        "overlay", title="剧情跳过DEBUG模式: overlay=透明叠加, preview=截图预览"
+    )
 
     # 自动战斗及声骸锁定配置
     MaxFightTime: int = Field(240, title="最大战斗时间")

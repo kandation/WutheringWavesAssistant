@@ -27,5 +27,5 @@ if (-not (Test-Path $rcc)) {
     throw "pyside6-rcc not found at $rcc. Install PySide6 first."
 }
 Write-Host "Rebuilding Qt resource bundle..."
-& $rcc "src/gui/resource/resource.qrc" -o "src/gui/common/resource.py"
+& $rcc -g python "src/gui/resource/resource.qrc" -o "src/gui/common/resource.py"
 Write-Host "Done."

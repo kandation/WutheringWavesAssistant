@@ -33,7 +33,7 @@ class TaskStatus(Enum):
 
     NOT_REQUIRED = (
         "不需要做", "任务无需执行，已跳过",
-        0, "gray", "⏭️", {"PENDING", "NOT_REQUIRED"},
+        0, "gray", "⏭️", {"PENDING", "NOT_REQUIRED", "IN_PROGRESS"},
         True, False
     )
 
@@ -285,6 +285,10 @@ class TaskFSM(FSM):
 
     def cancel(self):
         self.transition(TaskStatus.CANCELLED)
+
+    def skip(self):
+        """跳过任务（如副本未解锁）"""
+        self.transition(TaskStatus.NOT_REQUIRED)
 
     def retry(self):
         """重试失败的任务"""

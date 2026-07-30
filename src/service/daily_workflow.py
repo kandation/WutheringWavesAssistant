@@ -955,8 +955,8 @@ def doForgeryChallenge(ctx: NodeContext, local: TaskLocal, **kwargs) -> bool:
 
     # 检查副本未解锁
     if unlock:
-        logger.warning(f"Unlock instance: {ctx.tr(cur_instance).raw}")
-        cur_fsm.complete()
+        logger.warning(f"Unlock instance (skipped): {ctx.tr(cur_instance).raw}")
+        cur_fsm.skip()
         return True
 
     # 点击直接挑战
@@ -1245,8 +1245,8 @@ def doTacetSuppression(ctx: NodeContext, local: TaskLocal, **kwargs) -> bool:
 
         # 检查副本未解锁
         if unlock:
-            logger.warning(f"Unlock instance: {ctx.tr(cur_instance).raw}")
-            cur_fsm.complete()
+            logger.warning(f"Unlock instance (skipped): {ctx.tr(cur_instance).raw}")
+            cur_fsm.skip()
             return True
 
         # 点击直接挑战
@@ -1555,8 +1555,8 @@ def doWeeklyChallenge(ctx: NodeContext, local: TaskLocal, **kwargs) -> bool:
 
     # 检查副本未解锁
     if unlock:
-        logger.warning(f"Unlock instance: {ctx.tr(cur_instance).raw}")
-        cur_fsm.complete()
+        logger.warning(f"Unlock instance (skipped): {ctx.tr(cur_instance).raw}")
+        cur_fsm.skip()
         return True
 
     # 点击直接挑战
@@ -1946,8 +1946,8 @@ def doTacetDiscordNest(ctx: NodeContext, local: TaskLocal, **kwargs) -> bool:
                     return False
             # 检查副本未解锁
             if ui.search(ctx.tr(I18nText.EnableNavigation)):
-                logger.warning(f"Unlock instance: {ctx.tr(cur_instance).raw}")
-                cur_fsm.complete()
+                logger.warning(f"Unlock instance (skipped): {ctx.tr(cur_instance).raw}")
+                cur_fsm.skip()
                 return True
             # 点击快速旅行
             ui.click_text(ctx.tr(I18nText.FastTravel), delay=0.2, pk=PointKind.NEAR, times=2, interval=0.3)

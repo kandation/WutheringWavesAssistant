@@ -3220,7 +3220,13 @@ class I18nTr:
     def t(self, text_key: str, lang: str | None = None):
         if text_key is None:
             return None
+        lang_key = lang if lang is not None else self._lang
+        if lang_key == Language.TH:
+            from src.core.i18n_th_display import TH_CORE_DISPLAY
+            th_text = TH_CORE_DISPLAY.get(text_key)
+            if th_text:
+                return RegexStr(re.escape(th_text), raw=th_text)
         lang_map = I18N_TEXT.get(text_key)
         if not lang_map:
             return None
-        return lang_map.get(lang if lang is not None else self._lang)
+        return lang_map.get(lang_key)

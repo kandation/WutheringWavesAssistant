@@ -77,14 +77,10 @@ class DailyWidget(ScrollArea):
         self.currentTask = self.task
 
     def __initData(self):
-        from src.core.i18n import I18nText, I18nTr, Language
+        from src.core.i18n import I18nText, I18nTr
+        from src.gui.common.i18n_display import resolve_display_language
 
-        # try:
-        #     self.curLang = Language(paramConfig.get(paramConfig.gameLanguage))
-        # except Exception:
-        #     self.curLang = Language.ZH
-        self.curLang = Language.ZH
-
+        self.curLang = resolve_display_language()
         self.i18ntr = I18nTr(self.curLang)
 
         # 周本副本名，保存用，后端用，倒叙，最新在前
@@ -334,14 +330,11 @@ class DailyWidget(ScrollArea):
             self.bossChallengeComboBox,
         ]
 
-    def __refreshGridLayout(self, index):
-        from src.core.i18n import I18nText, I18nTr, Language
+    def refreshDropdownLabels(self):
+        from src.core.i18n import I18nTr
+        from src.gui.common.i18n_display import resolve_display_language
 
-        try:
-            self.curLang = self.lang[index]
-        except Exception:
-            self.curLang = Language.ZH
-
+        self.curLang = resolve_display_language()
         self.i18ntr = I18nTr(self.curLang)
 
         for idx in range(self.weeklyChallengeComboBox.count()):
@@ -362,16 +355,11 @@ class DailyWidget(ScrollArea):
                 i = -1
             if i == -1:
                 continue
-            text = self.tr("{challenge} - {boss}").format(
-                challenge=self.i18ntr(self.tacetSuppression[i]).raw, boss=self.i18ntr(self.tacetSuppression[i]).raw)
+            text = self.tr("{challenge} - {region}").format(
+                challenge=self.i18ntr(self.tacetSuppression[i]).raw,
+                region=self.i18ntr(self.guidebookRegionMap.get(self.tacetSuppression[i])).raw,
+            )
             self.tacetSuppressionComboBox.setItemText(idx, text)
-            # _tipsList = self.tacetSuppressionTips[i]
-            # _tips = ""
-            # for x in range(len(_tipsList)):
-            #     _tips += self.i18ntr(_tipsList[x])
-            #     if x < len(_tipsList) - 1:
-            #         _tips += "\n"
-            # self.tacetSuppressionComboBox.setToolTip(_tips)
 
         for idx in range(self.forgeryChallengeComboBox.count()):
             try:
@@ -380,8 +368,11 @@ class DailyWidget(ScrollArea):
                 i = -1
             if i == -1:
                 continue
-            text = self.tr("{challenge} - {boss}").format(
-                challenge=self.i18ntr(self.forgeryChallenge[i]).raw, boss=self.i18ntr(self.forgeryChallenge[i]).raw)
+            text = self.tr("{challenge} - {weapon} - {region}").format(
+                challenge=self.i18ntr(self.forgeryChallenge[i]).raw,
+                weapon=self.i18ntr(self.weapon[i % len(self.weapon)]).raw,
+                region=self.i18ntr(self.guidebookRegionMap.get(self.forgeryChallenge[i])).raw,
+            )
             self.forgeryChallengeComboBox.setItemText(idx, text)
 
         for idx in range(self.bossChallengeComboBox.count()):
@@ -391,9 +382,7 @@ class DailyWidget(ScrollArea):
                 i = -1
             if i == -1:
                 continue
-            text = self.tr("{challenge} - {boss}").format(
-                challenge=self.i18ntr(self.bossChallenge[i]).raw, boss=self.i18ntr(self.bossChallenge[i]).raw)
-            self.bossChallengeComboBox.setItemText(idx, text)
+            self.bossChallengeComboBox.setItemText(idx, self.i18ntr(self.bossChallenge[i]).raw)
 
         for idx in range(self.nightmarePurificationComboBox.count()):
             try:
@@ -402,10 +391,7 @@ class DailyWidget(ScrollArea):
                 i = -1
             if i == -1:
                 continue
-            text = self.tr("{challenge} - {boss}").format(
-                challenge=self.i18ntr(self.nightmarePurification[i]).raw,
-                boss=self.i18ntr(self.nightmarePurification[i]).raw)
-            self.nightmarePurificationComboBox.setItemText(idx, text)
+            self.nightmarePurificationComboBox.setItemText(idx, self.i18ntr(self.nightmarePurification[i]).raw)
 
         for idx in range(self.tacetDiscordNestComboBox.count()):
             try:
@@ -414,9 +400,7 @@ class DailyWidget(ScrollArea):
                 i = -1
             if i == -1:
                 continue
-            text = self.tr("{challenge} - {boss}").format(
-                challenge=self.i18ntr(self.tacetDiscordNest[i]).raw, boss=self.i18ntr(self.tacetDiscordNest[i]).raw)
-            self.tacetDiscordNestComboBox.setItemText(idx, text)
+            self.tacetDiscordNestComboBox.setItemText(idx, self.i18ntr(self.tacetDiscordNest[i]).raw)
 
     def __initWidget(self):
         # self.resize(1000, 800)

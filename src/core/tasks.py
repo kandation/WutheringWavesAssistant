@@ -97,7 +97,7 @@ class ProcessTask(ABC):
         else:
             start_time_last = self._start_time
         restart_time = datetime.now()
-        logger.warning(f"[{self.name}] 任务重启，上次重启时间: {start_time_last.strftime("%Y-%m-%d %H:%M:%S")}")
+        logger.warning(f"[{self.name}] 任务重启，上次重启时间: {start_time_last.strftime('%Y-%m-%d %H:%M:%S')}")
         self._restart_time_list.append(restart_time)
         self._process = Process(
             target=self.get_task(), args=self.args, kwargs=self.kwargs, name=self.name, daemon=self.daemon)
@@ -132,7 +132,7 @@ class ThreadTask(ProcessTask):
         else:
             start_time_last = self._start_time
         restart_time = datetime.now()
-        logger.warning(f"[{self.name}] 任务重启，上次重启时间: {start_time_last.strftime("%Y-%m-%d %H:%M:%S")}")
+        logger.warning(f"[{self.name}] 任务重启，上次重启时间: {start_time_last.strftime('%Y-%m-%d %H:%M:%S')}")
         self._restart_time_list.append(restart_time)
         # self._process = Process(
         #     target=self.get_task(), args=self.args, kwargs=self.kwargs, name=self.name, daemon=self.daemon)
@@ -316,6 +316,18 @@ def auto_boss_task_run(event, spec: TaskSpec, ipc: IPCManager, **kwargs):
         img_service: ImgService = container.img_service()
         ocr_service: OCRService = container.ocr_service()
         control_service: ControlService = container.control_service()
+
+        start = time.monotonic()
+        while event.is_set() and time.monotonic() - start < 300:
+            if window_service.refresh():
+                break
+            logger.warning("刷boss: 游戏窗口未就绪，等待中...")
+            time.sleep(2)
+        else:
+            if not event.is_set():
+                return
+            logger.error("刷boss: 等待游戏窗口超时，任务退出")
+            return
 
         # 1. 先获取当前鼠标位置
         original_x, original_y = keymouse_util.get_mouse_position()

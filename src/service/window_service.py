@@ -79,8 +79,11 @@ class HwndServiceImpl(WindowService):
     def refresh(self) -> bool:
         with self._rlock:
             try:
-                self._handle = hwnd_util.get_hwnd()
-                return True
+                self._handle = hwnd_util.get_hwnd(self.game_path, bool(self.game_path))
+                if self._handle:
+                    self._client_wh = None
+                    return True
+                return False
             except Exception:
                 logger.exception("Get hwnd error!")
                 return False

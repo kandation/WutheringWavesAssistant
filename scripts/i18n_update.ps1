@@ -21,4 +21,11 @@ $ts = "src/gui/resource/i18n/gallery.th_TH.ts"
 $qm = "src/gui/resource/i18n/gallery.th_TH.qm"
 Write-Host "Compiling $qm..."
 & $lrelease $ts -qm $qm
+
+$rcc = Join-Path (Split-Path $QtBin) "Scripts\pyside6-rcc.exe"
+if (-not (Test-Path $rcc)) {
+    throw "pyside6-rcc not found at $rcc. Install PySide6 first."
+}
+Write-Host "Rebuilding Qt resource bundle..."
+& $rcc "src/gui/resource/resource.qrc" -o "src/gui/common/resource.py"
 Write-Host "Done."

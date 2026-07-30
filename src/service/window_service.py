@@ -6,7 +6,7 @@ from src.core.exceptions import HwndError, raise_as
 from src.core.geometry import Scaler, BBox
 from src.core.i18n import I18nTr, I18N_TEXT, I18nText, Language
 
-_OCR_SUPPORTED_LANGUAGES = frozenset({Language.ZH, Language.EN})
+_OCR_SUPPORTED_LANGUAGES = frozenset({Language.ZH, Language.EN, Language.TH})
 from src.core.interface import WindowService
 from src.util import hwnd_util
 
@@ -108,7 +108,7 @@ class HwndServiceImpl(WindowService):
                 return None
         if lang not in _OCR_SUPPORTED_LANGUAGES:
             logger.warning(
-                "Game language '%s' is not supported for OCR matching (use zh-CN or en)",
+                "Game language '%s' is not supported for OCR matching (use zh-CN, en, or th)",
                 lang.value,
             )
             return None
@@ -159,6 +159,10 @@ class HwndServiceImpl(WindowService):
     @raise_as(HwndError)
     def get_client_rect_on_screen(self) -> tuple[int, int, int, int]:
         return hwnd_util.get_client_rect_on_screen(self.handle)
+
+    @raise_as(HwndError)
+    def get_capture_rect_on_screen(self) -> tuple[int, int, int, int]:
+        return hwnd_util.get_capture_rect_on_screen(self.handle)
 
     @raise_as(HwndError)
     def get_window_rect(self) -> tuple[int, int, int, int]:

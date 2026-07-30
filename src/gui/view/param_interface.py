@@ -1440,10 +1440,12 @@ class DailyTaskSettingCard(ScrollArea):
         self.langComboBox = ComboBox(self.scrollWidget)
         self.langComboBox.setPlaceholderText(self.tr("{text} - {sign}").format(
             text=self.langDesc[0], sign=self.lang[0].value))
+        from src.core.i18n import Language
+
         for i in range(len(self.lang)):
             self.langComboBox.addItem(self.tr("{text} - {sign}").format(
                 text=self.langDesc[i], sign=self.lang[i].value), userData=self.lang[i].value)
-            if i > 1:
+            if self.lang[i] not in (Language.ZH, Language.EN, Language.TH):
                 self.langComboBox.setItemEnabled(self.langComboBox.count() - 1, False)
         # self.gamePathHLayout = QHBoxLayout()
         # self.gamePathLabel = QLabel(self.tr("游戏路径:"), self.scrollWidget)

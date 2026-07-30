@@ -16,7 +16,7 @@ import win32api
 import win32con
 import win32gui
 import win32ui
-from PIL import Image, ImageDraw, ImageWin
+from PIL import Image, ImageDraw, ImageFont, ImageWin
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,26 @@ _AC_SRC_OVER = 0x00
 _AC_SRC_ALPHA = 0x01
 _ULW_ALPHA = 0x02
 _CLICK_MARKER_RADIUS = 8
+_STATUS_BAR_HEIGHT = 28
+_OVERLAY_FONT_PATHS = (
+    "C:/Windows/Fonts/segoeui.ttf",
+    "C:/Windows/Fonts/leelawui.ttf",
+    "C:/Windows/Fonts/msyh.ttc",
+)
+_overlay_font_cache: dict[int, ImageFont.FreeTypeFont | ImageFont.ImageFont] = {}
+
+
+def _get_overlay_font(size: int = 14) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    if size not in _overlay_font_cache:
+        for path in _OVERLAY_FONT_PATHS:
+            try:
+                _overlay_font_cache[size] = ImageFont.truetype(path, size)
+                break
+            except OSError:
+                continue
+        else:
+            _overlay_font_cache[size] = ImageFont.load_default()
+    return _overlay_font_cache[size]
 
 
 @dataclass(frozen=True)
@@ -83,11 +103,19 @@ class StoryDebugOverlay:
         src_img: np.ndarray,
         boxes: Sequence[OverlayBox],
         client_rect_screen: tuple[int, int, int, int] | None = None,
+        *,
+        status: str = "",
     ):
         if self._mode == "preview":
-            self._show_preview(src_img, boxes, client_rect_screen)
+            self._show_preview(src_img, boxes, client_rect_screen, status=status)
         else:
-            self._show_overlay(boxes, client_rect_screen, src_img.shape[1], src_img.shape[0])
+            self._show_overlay(
+                boxes,
+                client_rect_screen,
+                src_img.shape[1],
+                src_img.shape[0],
+                status=status,
+            )
 
     @staticmethod
     def _pump_messages():
@@ -95,6 +123,27 @@ class StoryDebugOverlay:
             win32gui.PumpWaitingMessages()
         except Exception:
             logger.debug("Overlay message pump failed", exc_info=True)
+
+    @staticmethod
+    def _draw_text_label(
+        draw: ImageDraw.ImageDraw,
+        x: int,
+        y: int,
+        text: str,
+        color: tuple[int, int, int, int],
+        *,
+        font: ImageFont.FreeTypeFont | ImageFont.ImageFont | None = None,
+    ):
+        if not text:
+            return
+        label_font = font or _get_overlay_font(14)
+        bbox = draw.textbbox((x, y), text, font=label_font)
+        pad = 2
+        draw.rectangle(
+            [bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad],
+            fill=(0, 0, 0, 170),
+        )
+        draw.text((x, y), text, fill=color, font=label_font)
 
     @staticmethod
     def _draw_click_marker_pil(draw: ImageDraw.ImageDraw, cx: int, cy: int, color: tuple[int, int, int, int]):
@@ -115,17 +164,32 @@ class StoryDebugOverlay:
         src_img: np.ndarray,
         boxes: Sequence[OverlayBox],
         client_rect_screen: tuple[int, int, int, int] | None,
+        *,
+        status: str = "",
     ):
         frame = src_img.copy()
+        if status:
+            cv2.rectangle(frame, (0, 0), (frame.shape[1], 28), (32, 32, 32), -1)
+            cv2.putText(
+                frame,
+                status[:120],
+                (8, 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (0, 255, 255),
+                1,
+                cv2.LINE_AA,
+            )
         for box in boxes:
             color = (0, 0, 255) if box.is_hit else box.color_bgr
             thickness = 3 if box.is_hit else 2
             cv2.rectangle(frame, (box.x1, box.y1), (box.x2, box.y2), color, thickness)
             if box.label:
+                label_y = max(box.y1 - 6, 34 if status else 14)
                 cv2.putText(
                     frame,
                     box.label,
-                    (box.x1, max(box.y1 - 6, 14)),
+                    (box.x1, label_y),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.5,
                     color,
@@ -218,12 +282,13 @@ class StoryDebugOverlay:
         client_rect_screen: tuple[int, int, int, int] | None,
         img_w: int,
         img_h: int,
+        *,
+        status: str = "",
     ):
         if not client_rect_screen:
             if not self._warned_missing_rect:
                 logger.warning(
-                    "Story debug overlay: no game client rect; overlay hidden "
-                    "(set StoryDebugOverlayMode: preview to use a separate window)",
+                    "Story debug overlay: no game capture rect; overlay hidden",
                 )
                 self._warned_missing_rect = True
             return
@@ -237,6 +302,10 @@ class StoryDebugOverlay:
         scale_y = h / img_h
         image = Image.new("RGBA", (w, h), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)
+        label_font = _get_overlay_font(14)
+        status_font = _get_overlay_font(13)
+        status_offset = _STATUS_BAR_HEIGHT if status else 0
+
         for box in boxes:
             bx1 = int(box.x1 * scale_x)
             by1 = int(box.y1 * scale_y)
@@ -248,13 +317,31 @@ class StoryDebugOverlay:
             alpha = 255 if box.is_hit else 210
             outline = (r, g, b, alpha)
             width = 3 if box.is_hit else 2
-            draw.rectangle([bx1, by1, bx2, by2], outline=outline, width=width)
+            if box.is_hit:
+                draw.rectangle([bx1, by1, bx2, by2], fill=(r, g, b, 45), outline=outline, width=width)
+            else:
+                draw.rectangle([bx1, by1, bx2, by2], outline=outline, width=width)
             if box.label:
-                draw.text((bx1 + 2, max(by1 - 14, 0)), box.label, fill=outline)
+                label_y = max(by1 - 18, status_offset + 2 if status else 2)
+                self._draw_text_label(
+                    draw,
+                    bx1 + 2,
+                    label_y,
+                    box.label,
+                    outline,
+                    font=label_font,
+                )
             if box.click_xy is not None:
                 cx = int(box.click_xy[0] * scale_x)
                 cy = int(box.click_xy[1] * scale_y)
                 self._draw_click_marker_pil(draw, cx, cy, outline)
+
+        if status:
+            draw.rectangle(
+                [0, 0, w, _STATUS_BAR_HEIGHT],
+                fill=(32, 32, 32, 210),
+            )
+            draw.text((8, 6), status[:120], fill=(0, 255, 255, 255), font=status_font)
 
         self._ensure_overlay_hwnd(sx1, sy1, w, h)
         self._blit_layered(self._hwnd, image, sx1, sy1)
@@ -272,27 +359,35 @@ class StoryDebugOverlay:
 
     def _blit_layered(self, hwnd: int, image: Image.Image, screen_x: int, screen_y: int):
         hdc_screen = win32gui.GetDC(0)
-        hdc_mem = win32ui.CreateCompatibleDC(hdc_screen)
-        width, height = image.size
-        bmp = win32ui.CreateBitmap()
-        bmp.CreateCompatibleBitmap(hdc_screen, width, height)
-        hdc_mem.SelectObject(bmp)
-        ImageWin.Dib(image).draw(hdc_mem.GetHandleOutput(), (0, 0, width, height))
+        hdc_mem = None
+        bmp = None
+        try:
+            screen_dc = win32ui.CreateDCFromHandle(hdc_screen)
+            hdc_mem = screen_dc.CreateCompatibleDC()
+            width, height = image.size
+            bmp = win32ui.CreateBitmap()
+            bmp.CreateCompatibleBitmap(screen_dc, width, height)
+            hdc_mem.SelectObject(bmp)
+            ImageWin.Dib(image).draw(hdc_mem.GetHandleOutput(), (0, 0, width, height))
 
-        blend = _BLENDFUNCTION(_AC_SRC_OVER, 0, 255, _AC_SRC_ALPHA)
-        pos = wintypes.POINT(screen_x, screen_y)
-        size = wintypes.SIZE(width, height)
-        src_point = wintypes.POINT(0, 0)
-        ctypes.windll.user32.UpdateLayeredWindow(
-            hwnd,
-            hdc_screen,
-            ctypes.byref(pos),
-            ctypes.byref(size),
-            hdc_mem.GetSafeHdc(),
-            ctypes.byref(src_point),
-            0,
-            ctypes.byref(blend),
-            _ULW_ALPHA,
-        )
-        win32gui.ReleaseDC(0, hdc_screen)
-        hdc_mem.DeleteDC()
+            blend = _BLENDFUNCTION(_AC_SRC_OVER, 0, 255, _AC_SRC_ALPHA)
+            pos = wintypes.POINT(screen_x, screen_y)
+            size = wintypes.SIZE(width, height)
+            src_point = wintypes.POINT(0, 0)
+            ctypes.windll.user32.UpdateLayeredWindow(
+                hwnd,
+                hdc_screen,
+                ctypes.byref(pos),
+                ctypes.byref(size),
+                hdc_mem.GetSafeHdc(),
+                ctypes.byref(src_point),
+                0,
+                ctypes.byref(blend),
+                _ULW_ALPHA,
+            )
+        finally:
+            if bmp is not None:
+                win32gui.DeleteObject(bmp.GetHandle())
+            if hdc_mem is not None:
+                hdc_mem.DeleteDC()
+            win32gui.ReleaseDC(0, hdc_screen)

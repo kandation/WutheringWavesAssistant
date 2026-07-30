@@ -343,6 +343,43 @@ def get_client_rect_on_screen(hwnd) -> tuple[int, int, int, int]:
     return client_left, client_top, client_right, client_bottom
 
 
+def get_capture_rect_on_screen(hwnd) -> tuple[int, int, int, int]:
+    """BetterGI-style capture rect: DWM frame bounds with client area bottom-aligned."""
+    class _RECT(ctypes.Structure):
+        _fields_ = [
+            ("left", ctypes.c_long),
+            ("top", ctypes.c_long),
+            ("right", ctypes.c_long),
+            ("bottom", ctypes.c_long),
+        ]
+
+    window_rect = _RECT()
+    dwmwa_extended_frame_bounds = 9
+    try:
+        ctypes.windll.dwmapi.DwmGetWindowAttribute(
+            hwnd,
+            dwmwa_extended_frame_bounds,
+            ctypes.byref(window_rect),
+            ctypes.sizeof(window_rect),
+        )
+    except Exception:
+        logger.debug("DWM capture rect failed; falling back to client rect", exc_info=True)
+        return get_client_rect_on_screen(hwnd)
+
+    client_left, client_top, client_right, client_bottom = win32gui.GetClientRect(hwnd)
+    client_w = client_right - client_left
+    client_h = client_bottom - client_top
+    if client_w <= 0 or client_h <= 0:
+        return get_client_rect_on_screen(hwnd)
+
+    frame_h = window_rect.bottom - window_rect.top
+    left = window_rect.left
+    top = window_rect.top + frame_h - client_h
+    right = left + client_w
+    bottom = top + client_h
+    return left, top, right, bottom
+
+
 def get_focus_rect_on_screen(hwnd, region: tuple[float, float, float, float] | None = None) -> tuple[
     int, int, int, int]:
     """获取窗口 相对区域 的 绝对屏幕坐标"""

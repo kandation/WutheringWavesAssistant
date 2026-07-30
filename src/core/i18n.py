@@ -3205,6 +3205,12 @@ I18N_PAGES_BOSS = {
 }
 
 
+from src.core.i18n_th_merge import merge_th_i18n_text, merge_th_pages
+
+merge_th_i18n_text(I18N_TEXT)
+merge_th_pages(I18N_PAGES, I18N_PAGES_ECHO_MERGE, I18N_PAGES_GUIDEBOOK, I18N_PAGES_BOSS)
+
+
 class I18nTr:
 
     def __init__(self, lang: Language):

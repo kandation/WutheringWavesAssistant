@@ -9,7 +9,7 @@ from src.gui.common.config import Language as GuiLanguage, cfg, paramConfig
 logger = logging.getLogger(__name__)
 
 # Languages with OCR regex / page matchers in core i18n data.
-OCR_SUPPORTED_LANGUAGES = frozenset({Language.ZH, Language.EN})
+OCR_SUPPORTED_LANGUAGES = frozenset({Language.ZH, Language.EN, Language.TH})
 
 _BOSS_I18N_KEY_OVERRIDES: dict[str, str] = {
     "ThousandPuppetPavilion": I18nText.WeeklyBossThousandPuppetPavilion,
@@ -56,7 +56,7 @@ def resolve_game_language() -> Language:
             lang = Language(game_language)
             if lang not in OCR_SUPPORTED_LANGUAGES:
                 logger.warning(
-                    "Game language '%s' is not supported for OCR (use zh-CN or en); falling back to zh-CN",
+                    "Game language '%s' is not supported for OCR (use zh-CN, en, or th); falling back to zh-CN",
                     lang.value,
                 )
                 return Language.ZH

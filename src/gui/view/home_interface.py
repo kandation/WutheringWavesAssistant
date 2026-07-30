@@ -113,7 +113,7 @@ class BasicSettingWidget(QWidget):
             # self.langComboBox.addItem(self.tr("{text} - {sign}").format(
             #     text=self.langDesc[i], sign=self.lang[i].value), userData=self.lang[i].value)
             self.langComboBox.addItem(self.tr("{text}").format(text=self.langDesc[i]), userData=self.lang[i].value)
-            if i > 1:
+            if self.lang[i] not in (Language.ZH, Language.EN, Language.TH):
                 self.langComboBox.setItemEnabled(self.langComboBox.count() - 1, False)
 
         self.deviceLayout = QHBoxLayout()

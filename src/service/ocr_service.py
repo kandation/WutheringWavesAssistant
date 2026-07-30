@@ -9,6 +9,7 @@ import numpy as np
 
 from src.core.contexts import Context
 from src.core.geometry import TextBox, BBox, RapidocrTextBox, PaddleocrTextBox, RapidocrRecTextBox
+from src.core.i18n import Language
 from src.core.interface import OCRService, ImgService, WindowService
 from src.core.pages import OcrResult
 from src.core.regions import Position, RapidocrPosition, TextPosition, DynamicPosition, PaddleocrPosition
@@ -17,6 +18,21 @@ from src.util import rapidocr_util
 from src.util.wrap_util import timeit
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_ocr_game_lang(context: Context, window_service: WindowService) -> Language | None:
+    if context.spec and context.spec.game_lang:
+        try:
+            return Language(context.spec.game_lang)
+        except ValueError:
+            logger.warning("Invalid OCR game language code: %r", context.spec.game_lang)
+    runtime = getattr(context, "runtime", None)
+    if runtime and runtime.cfg and runtime.cfg.game:
+        return runtime.cfg.game.gameLanguage
+    try:
+        return window_service.get_lang()
+    except Exception:
+        return None
 
 
 class ImageTransform:
@@ -245,7 +261,10 @@ class RapidOcrServiceImpl(AbstractOcrService):
         logger.debug("Initializing %s", self.__class__.__name__)
         super().__init__(context, window_service, img_service)
 
-        self._engine = rapidocr_util.create_ocr(use_gpu=self.ocr_use_gpu)
+        self._engine = rapidocr_util.create_ocr(
+            use_gpu=self.ocr_use_gpu,
+            game_lang=_resolve_ocr_game_lang(context, window_service),
+        )
         self._last_time = time.time()
 
     def search_text(self, results: list[TextPosition], target: str) -> TextPosition | None:

@@ -446,7 +446,7 @@ def doTeam(ctx: NodeContext, local: TaskLocal, **kwargs) -> bool | None:
                 # 角色名都对不上，默认为主角
                 members_info[i][0] = enum_obj.value if enum_obj else ResonatorNameEnum.rover.value
                 team_members[i] = members_info[i][0]
-            elif lang == Language.EN:
+            elif lang in (Language.EN, Language.TH):
                 key = next((k for k in keys if ui.match_key(k, text_box.text)), None)
                 if not key:
                     key = I18nText.Rover

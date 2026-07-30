@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import threading
 import time
 
@@ -18,10 +19,47 @@ from src.util.wrap_util import timeit
 logger = logging.getLogger(__name__)
 
 # ROIs normalized to 1280x720 reference coordinates.
-# Bottom Skip pill (~70% X, 71% Y on Summary / dialogue screens).
+# Bottom Skip pill — Thai/EN client often shows "ข้าม" / "Skip" on the lower-right.
 _BOTTOM_SKIP_ROI_RATE = (680 / 1280, 470 / 720, 1080 / 1280, 580 / 720)
+# Wider bottom strip (covers centered / left skip buttons on some layouts).
+_BOTTOM_BAR_ROI_RATE = (0.30, 0.78, 0.98, 0.97)
 _TOP_LEFT_SKIP_ROI_RATE = (0.0, 0.0, 200 / 1280, 150 / 720)
-_SKIP_TEXT_PATTERN = r"^(跳过|S?KI[PE].{0,3}|Skip)$"
+# Dialog / confirm popups after pressing skip.
+_DIALOG_ROI_RATE = (0.10, 0.20, 0.90, 0.92)
+
+_SKIP_SCAN_ROIS: tuple[tuple[str, tuple[float, float, float, float]], ...] = (
+    ("bottom-right", _BOTTOM_SKIP_ROI_RATE),
+    ("bottom-bar", _BOTTOM_BAR_ROI_RATE),
+    ("top-left", _TOP_LEFT_SKIP_ROI_RATE),
+)
+
+# Flexible patterns — OCR may add spaces or misread Thai; avoid strict ^$.
+_SKIP_BUTTON_RE = re.compile(
+    r"(?:"
+    r"ข\s*้\s*าม|ข้าม|"
+    r"跳过|"
+    r"[Ss][Kk][Ii][Pp]|Skip"
+    r")",
+    re.I,
+)
+_SKIP_STORY_RE = re.compile(
+    r"(?:"
+    r"ข\s*้\s*าม\s*เนื้อ\s*เรื่อง|ข้ามเนื้อเรื่อง|"
+    r"跳过剧情|"
+    r"[Ss][Kk][Ii][Pp]"
+    r")",
+    re.I,
+)
+_RESUME_RE = re.compile(r"(?:继续观看|ดูต่อ|Resume)", re.I)
+_CONFIRM_RE = re.compile(r"(?:确认|ยืนยัน|Confirm)", re.I)
+_DONT_SHOW_AGAIN_RE = re.compile(
+    r"(?:本次登录不再提示|ไม่แสดงอีก|Do not show again)",
+    re.I,
+)
+_SKIP_CONFIRM_BODY_RE = re.compile(
+    r"(?:完整观看剧情.*是否确认跳过|ดูเนื้อเรื่อง.*ยืนยันที่จะข้าม|ยืนยันที่จะข้าม)",
+    re.I,
+)
 
 
 class DynamicFpsLimit:
@@ -97,14 +135,17 @@ class AutoStoryServiceImpl(PageEventAbstractService):
         app_cfg = context.config.app
         story_debug = bool(app_cfg.StoryDebugMode) or os.environ.get(
             "WWA_STORY_DEBUG", "").lower() in ("1", "true", "yes")
-        self._debug_overlay = StoryDebugOverlay.from_config(
-            story_debug,
-            mode=getattr(app_cfg, "StoryDebugOverlayMode", "overlay"),
-        )
+        try:
+            if self._window_service.get_lang() == Language.TH:
+                story_debug = True
+        except Exception:
+            pass
+        overlay_mode = getattr(app_cfg, "StoryDebugOverlayMode", "overlay")
+        self._debug_overlay = StoryDebugOverlay.from_config(story_debug, mode=overlay_mode)
         if story_debug:
             logger.info(
-                "Story debug overlay enabled (mode=%s)",
-                getattr(app_cfg, "StoryDebugOverlayMode", "overlay"),
+                "Story debug ON (mode=%s) — set StoryDebugMode: false in config.yaml to hide",
+                overlay_mode,
             )
 
     @staticmethod
@@ -164,23 +205,88 @@ class AutoStoryServiceImpl(PageEventAbstractService):
             text=match.text,
         )
 
+    @staticmethod
+    def _normalize_ocr_text(text: str) -> str:
+        return re.sub(r"\s+", "", (text or "").strip())
+
+    @classmethod
+    def _match_skip_button(cls, text: str) -> bool:
+        raw = (text or "").strip()
+        if not raw:
+            return False
+        if _SKIP_BUTTON_RE.search(raw):
+            return True
+        compact = cls._normalize_ocr_text(raw)
+        return bool(compact and _SKIP_BUTTON_RE.search(compact))
+
+    @staticmethod
+    def _ocr_boxes_to_overlay(
+            matches: list[TextPosition],
+            *,
+            hit: TextPosition | None = None,
+    ) -> list[OverlayBox]:
+        boxes: list[OverlayBox] = []
+        for m in matches:
+            is_hit = hit is not None and m is hit
+            label = f"{'HIT ' if is_hit else ''}{m.text!r}"
+            boxes.append(OverlayBox(
+                m.x1, m.y1, m.x2, m.y2,
+                label=label,
+                color_bgr=(0, 0, 255) if is_hit else (160, 160, 160),
+                is_hit=is_hit,
+                click_xy=(int(m.center[0]), int(m.center[1])) if is_hit else None,
+            ))
+        return boxes
+
+    def _ocr_roi(
+            self,
+            src_img: np.ndarray,
+            img: np.ndarray,
+            roi_rate: tuple[float, float, float, float],
+    ) -> tuple[Position | None, list[TextPosition]]:
+        """Run OCR inside ROI; return positions mapped to src_img coordinates."""
+        roi_pos = self._roi_position_from_rate(img, roi_rate)
+        if roi_pos is None:
+            return None, []
+        results = self._ocr_service.ocr(img, roi_pos)
+        mapped: list[TextPosition] = []
+        for item in results:
+            mapped.append(self._map_ocr_match_to_src(src_img, img, roi_pos, item))
+        return roi_pos, mapped
+
+    def _find_skip_in_roi(
+            self,
+            src_img: np.ndarray,
+            img: np.ndarray,
+            roi_rate: tuple[float, float, float, float],
+    ) -> TextPosition | None:
+        _, mapped = self._ocr_roi(src_img, img, roi_rate)
+        for item in mapped:
+            if self._match_skip_button(item.text):
+                return item
+        return None
+
+    def _find_skip_anywhere(
+            self,
+            src_img: np.ndarray,
+            img: np.ndarray,
+    ) -> tuple[TextPosition | None, list[TextPosition], str]:
+        all_mapped: list[TextPosition] = []
+        for region_name, roi_rate in _SKIP_SCAN_ROIS:
+            _, mapped = self._ocr_roi(src_img, img, roi_rate)
+            all_mapped.extend(mapped)
+            for item in mapped:
+                if self._match_skip_button(item.text):
+                    return item, all_mapped, region_name
+        return None, all_mapped, ""
+
     def _ocr_find_skip_in_roi(
             self,
             src_img: np.ndarray,
             img: np.ndarray,
             roi_rate: tuple[float, float, float, float],
     ) -> TextPosition | None:
-        # Use pixel Position on the resized OCR image. DynamicPosition in OCR
-        # service is converted with window client size, not img.shape, which
-        # yields empty crops after resize_by_weight (1280px-wide) paths.
-        roi_pos = self._roi_position_from_rate(img, roi_rate)
-        if roi_pos is None:
-            logger.debug("Skip OCR ROI empty for rate=%s on img %s", roi_rate, img.shape[:2])
-            return None
-        match = self._ocr_service.find_text(_SKIP_TEXT_PATTERN, img, roi_pos)
-        if match is None:
-            return None
-        return self._map_ocr_match_to_src(src_img, img, roi_pos, match)
+        return self._find_skip_in_roi(src_img, img, roi_rate)
 
     def _click_position(self, position: Position, *, label: str) -> bool:
         x, y = position.center
@@ -204,70 +310,108 @@ class AutoStoryServiceImpl(PageEventAbstractService):
         x1, y1, x2, y2 = self._roi_from_rate(src_img, roi_rate)
         return OverlayBox(x1, y1, x2, y2, label=label, color_bgr=color_bgr, is_hit=is_hit)
 
-    @staticmethod
-    def _text_hit_overlay_box(
-            match: TextPosition,
-            *,
-            label: str,
-            color_bgr: tuple[int, int, int],
-    ) -> OverlayBox:
-        cx, cy = match.center
-        return OverlayBox(
-            match.x1, match.y1, match.x2, match.y2,
-            label=label,
-            color_bgr=color_bgr,
-            is_hit=True,
-            click_xy=(int(cx), int(cy)),
-        )
-
     def _update_debug_overlay(
             self,
             src_img: np.ndarray,
             *,
-            bottom_skip: TextPosition | None = None,
-            top_left_skip: TextPosition | None = None,
+            status: str = "",
+            roi_boxes: list[OverlayBox] | None = None,
+            ocr_hits: list[TextPosition] | None = None,
+            skip_hit: TextPosition | None = None,
     ):
         if self._debug_overlay is None:
             return
-        boxes = [
-            self._roi_overlay_box(
-                src_img, _BOTTOM_SKIP_ROI_RATE, "bottom-skip-roi", (0, 255, 255),
-                is_hit=bottom_skip is not None),
-            self._roi_overlay_box(
-                src_img, _TOP_LEFT_SKIP_ROI_RATE, "top-left-skip-roi", (0, 200, 0),
-                is_hit=top_left_skip is not None),
-        ]
-        if bottom_skip is not None:
-            boxes.append(self._text_hit_overlay_box(
-                bottom_skip, label="bottom-skip", color_bgr=(0, 255, 255)))
-        if top_left_skip is not None:
-            boxes.append(self._text_hit_overlay_box(
-                top_left_skip, label="top-left-skip", color_bgr=(0, 200, 0)))
+        boxes: list[OverlayBox] = list(roi_boxes or [])
+        if ocr_hits:
+            boxes.extend(self._ocr_boxes_to_overlay(ocr_hits, hit=skip_hit))
         try:
-            client_rect = self._window_service.get_client_rect_on_screen()
+            capture_rect = self._window_service.get_capture_rect_on_screen()
         except Exception:
-            logger.warning("Story debug overlay: failed to get client rect", exc_info=True)
-            client_rect = None
-        self._debug_overlay.update(src_img, boxes, client_rect)
+            logger.warning("Story debug overlay: failed to get capture rect", exc_info=True)
+            capture_rect = None
+        self._debug_overlay.update(src_img, boxes, capture_rect, status=status)
 
-    def _find_top_left_skip(
+    def _debug_roi_boxes(
+            self,
+            src_img: np.ndarray,
+            *,
+            active_region: str = "",
+    ) -> list[OverlayBox]:
+        boxes: list[OverlayBox] = []
+        for name, rate in _SKIP_SCAN_ROIS:
+            color = (0, 255, 255) if name == active_region else (0, 180, 180)
+            boxes.append(self._roi_overlay_box(
+                src_img, rate, f"roi:{name}", color, is_hit=name == active_region))
+        boxes.append(self._roi_overlay_box(
+            src_img, _DIALOG_ROI_RATE, "roi:dialog", (180, 0, 180), is_hit=False))
+        return boxes
+
+    def _find_skip_in_ocr_list(self, ocr_results: list[TextPosition] | None) -> TextPosition | None:
+        if not ocr_results:
+            return None
+        for item in ocr_results:
+            if self._match_skip_button(item.text):
+                return item
+        return None
+
+    def _ocr_dialog(
             self,
             src_img: np.ndarray,
             img: np.ndarray,
-            ocr_results: list[TextPosition] | None,
-    ) -> TextPosition | None:
-        if not ocr_results:
-            return None
-        skip_match = self._skip_page.get_text_match_by_name("跳过|SKIP")
-        match = self._skip_page.text_match(skip_match, src_img, img, ocr_results)
-        return match if isinstance(match, TextPosition) else None
+    ) -> list[TextPosition]:
+        _, mapped = self._ocr_roi(src_img, img, _DIALOG_ROI_RATE)
+        return mapped
+
+    def _try_skip_confirm(self, src_img: np.ndarray, img: np.ndarray) -> bool:
+        dialog_ocr = self._ocr_dialog(src_img, img)
+        body = next((t for t in dialog_ocr if _SKIP_CONFIRM_BODY_RE.search(t.text)), None)
+        confirm = next((t for t in dialog_ocr if _CONFIRM_RE.search(t.text)), None)
+        dont_show = next((t for t in dialog_ocr if _DONT_SHOW_AGAIN_RE.search(t.text)), None)
+        self._update_debug_overlay(
+            src_img,
+            status=f"skip-confirm body={bool(body)} confirm={bool(confirm)}",
+            roi_boxes=self._debug_roi_boxes(src_img),
+            ocr_hits=dialog_ocr,
+        )
+        if body and confirm and dont_show:
+            self._control_service.click(*dont_show.center)
+            time.sleep(0.1)
+            self._control_service.click(*confirm.center)
+            time.sleep(0.5)
+            return True
+        if self.page_action(self._skip_confirm_page, src_img, img, dialog_ocr):
+            return True
+        return False
+
+    def _try_skip_synopsis(self, src_img: np.ndarray, img: np.ndarray) -> bool:
+        dialog_ocr = self._ocr_dialog(src_img, img)
+        skip_story = next((t for t in dialog_ocr if _SKIP_STORY_RE.search(t.text)), None)
+        self._update_debug_overlay(
+            src_img,
+            status=f"skip-synopsis hit={bool(skip_story)}",
+            roi_boxes=self._debug_roi_boxes(src_img),
+            ocr_hits=dialog_ocr,
+            skip_hit=skip_story,
+        )
+        if skip_story is not None:
+            self._click_position(skip_story, label="skip-story-th")
+            return True
+        if self.page_action(self._skip_story_synopsis_page, src_img, img, dialog_ocr):
+            return True
+        return False
 
     def _handle_story_skip(self, src_img: np.ndarray, img: np.ndarray) -> bool:
-        """OCR bottom ROI for Skip / 跳过, then fall through to top-left page match."""
-        bottom_skip = self._ocr_find_skip_in_roi(src_img, img, _BOTTOM_SKIP_ROI_RATE)
-        self._update_debug_overlay(src_img, bottom_skip=bottom_skip)
-        if bottom_skip is not None:
-            return self._click_position(bottom_skip, label="bottom-skip-ocr")
+        """Scan all skip ROIs; show every OCR box in debug preview."""
+        skip_hit, all_ocr, region = self._find_skip_anywhere(src_img, img)
+        self._update_debug_overlay(
+            src_img,
+            status=f"skip-scan region={region or 'none'} hits={len(all_ocr)}",
+            roi_boxes=self._debug_roi_boxes(src_img, active_region=region),
+            ocr_hits=all_ocr,
+            skip_hit=skip_hit,
+        )
+        if skip_hit is not None:
+            return self._click_position(skip_hit, label=f"skip-{region}")
         return False
 
     def execute(self, **kwargs):
@@ -313,33 +457,42 @@ class AutoStoryServiceImpl(PageEventAbstractService):
                 self.skip_btn_is_clicked_start_time = time.time()
                 return
 
-            # 点击了 跳过 后的数秒内，检查 不再提示 和 剧情梗概
+            # After clicking skip: confirm dialog / story synopsis (Thai + ZH/EN).
             if time.time() - self.skip_btn_is_clicked_start_time < self.skip_btn_is_clicked_timeout:
-                ocr_results = self._ocr_service.ocr(img)
-                if self.page_action(self._skip_confirm_page, src_img, img, ocr_results):
+                if self._try_skip_confirm(src_img, img):
                     return
-                if self.page_action(self._skip_story_synopsis_page, src_img, img, ocr_results):
+                if self._try_skip_synopsis(src_img, img):
                     return
-                # self.page_action(self._blank_area_page, src_img, img, ocr_results)
-            elif self.skip_btn_is_clicked: # 超时了重置为未点击状态，即恢复默认检测频率，点击状态检测频率更高，无其他作用
+            elif self.skip_btn_is_clicked:
                 self.skip_btn_is_clicked = False
                 return
 
-            # OCR fallback for top-left Skip (legacy UI)
-            if not ocr_results:
-                ocr_results = self._ocr_service.ocr(
-                    img, DynamicPosition(rate=_TOP_LEFT_SKIP_ROI_RATE))
-            top_left_skip = self._find_top_left_skip(src_img, img, ocr_results)
-            if self._debug_overlay is not None:
-                self._update_debug_overlay(
-                    src_img, bottom_skip=None, top_left_skip=top_left_skip)
-            logger.debug("ocr_results: %s", ocr_results)
-            if self.page_action(self._skip_page, src_img, img, ocr_results):
+            # Legacy top-left skip via page matcher + dialogue advance.
+            _, top_left_ocr = self._ocr_roi(src_img, img, _TOP_LEFT_SKIP_ROI_RATE)
+            top_left_skip = self._find_skip_in_ocr_list(top_left_ocr)
+            if top_left_skip is None:
+                skip_match = self._skip_page.get_text_match_by_name("跳过|SKIP")
+                matched = self._skip_page.text_match(skip_match, src_img, img, top_left_ocr)
+                if isinstance(matched, TextPosition):
+                    top_left_skip = matched
+            self._update_debug_overlay(
+                src_img,
+                status="top-left fallback",
+                roi_boxes=self._debug_roi_boxes(src_img, active_region="top-left"),
+                ocr_hits=top_left_ocr,
+                skip_hit=top_left_skip,
+            )
+            if top_left_skip is not None:
+                self._click_position(top_left_skip, label="top-left-skip")
                 self.skip_btn_is_clicked = True
                 self.skip_btn_is_clicked_start_time = time.time()
                 return
-            self.page_action(self._dialogue_page, src_img, img, ocr_results)
-            self.page_action(self._dialogue2_page, src_img, img, ocr_results)
+            if self.page_action(self._skip_page, src_img, img, top_left_ocr):
+                self.skip_btn_is_clicked = True
+                self.skip_btn_is_clicked_start_time = time.time()
+                return
+            self.page_action(self._dialogue_page, src_img, img, top_left_ocr)
+            self.page_action(self._dialogue2_page, src_img, img, top_left_ocr)
         else:
             if not self._is_auto_play_enabled:
                 # 打开自动播放
@@ -420,7 +573,13 @@ class AutoStoryServiceImpl(PageEventAbstractService):
     def _build_story_pages(self):
         def skip_page_action(positions: dict[str, Position]) -> bool:
             time.sleep(0.1)
-            position = positions.get("跳过|SKIP")
+            position = (
+                positions.get("跳过|SKIP")
+                or positions.get("ข้าม")
+                or next(iter(positions.values()), None)
+            )
+            if position is None:
+                return False
             self._control_service.click(*position.center)
             time.sleep(0.1)
             self._control_service.click(*position.center)
@@ -432,16 +591,9 @@ class AutoStoryServiceImpl(PageEventAbstractService):
             targetTexts=[
                 TextMatch(
                     name="跳过|SKIP",
-                    text=r"^(跳过|S?KI[PE].{0,3})",
-                    open_position=False, # 已在ocr时裁剪了图片，匹配文本时不再限制区域
-                    position=DynamicPosition(
-                        rate=(
-                            0.0,
-                            0.0,
-                            200 / 1280,
-                            150 / 720,
-                        ),
-                    ),
+                    text=_SKIP_BUTTON_RE,
+                    open_position=False,
+                    position=DynamicPosition(rate=_TOP_LEFT_SKIP_ROI_RATE),
                 ),
             ],
             action=skip_page_action,
@@ -451,7 +603,9 @@ class AutoStoryServiceImpl(PageEventAbstractService):
 
         def skip_story_synopsis_action(positions: dict[str, Position]) -> bool:
             time.sleep(0.1)
-            position = positions.get("跳过剧情")
+            position = positions.get("跳过剧情") or positions.get("ข้ามเนื้อเรื่อง")
+            if position is None:
+                return False
             self._control_service.click(*position.center)
             time.sleep(0.5)
             return True
@@ -461,11 +615,11 @@ class AutoStoryServiceImpl(PageEventAbstractService):
             targetTexts=[
                 TextMatch(
                     name="继续观看",
-                    text=r"^(继续观看|Resume)$",
+                    text=_RESUME_RE,
                 ),
                 TextMatch(
                     name="跳过剧情",
-                    text=r"^(跳过剧情|Skip)$",
+                    text=_SKIP_STORY_RE,
                 ),
             ],
             action=skip_story_synopsis_action,
@@ -474,10 +628,15 @@ class AutoStoryServiceImpl(PageEventAbstractService):
         self._skip_story_synopsis_page = skip_story_synopsis_page
 
         def skip_confirm_page_action(positions: dict[str, Position]) -> bool:
-            dont_notice_again_position = positions.get("本次登录不再提示")
+            dont_notice_again_position = (
+                positions.get("本次登录不再提示")
+                or positions.get("ไม่แสดงอีก")
+            )
+            confirm_position = positions.get("确认") or positions.get("ยืนยัน")
+            if dont_notice_again_position is None or confirm_position is None:
+                return False
             self._control_service.click(*dont_notice_again_position.center)
             time.sleep(0.1)
-            confirm_position = positions.get("确认")
             self._control_service.click(*confirm_position.center)
             time.sleep(0.5)
             return True
@@ -487,15 +646,15 @@ class AutoStoryServiceImpl(PageEventAbstractService):
             targetTexts=[
                 TextMatch(
                     name="完整观看剧情",
-                    text="完整观看剧情.*是否确认跳过",
+                    text=_SKIP_CONFIRM_BODY_RE,
                 ),
                 TextMatch(
                     name="确认",
-                    text="^确认$",
+                    text=_CONFIRM_RE,
                 ),
                 TextMatch(
                     name="本次登录不再提示",
-                    text="本次登录不再提示",
+                    text=_DONT_SHOW_AGAIN_RE,
                 ),
             ],
             action=skip_confirm_page_action,

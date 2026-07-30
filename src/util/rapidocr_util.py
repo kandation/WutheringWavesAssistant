@@ -2,6 +2,7 @@ import logging
 
 import numpy as np
 from tqdm import tqdm
+from src.core.i18n import Language
 from src.util import file_util, img_util
 
 logger = logging.getLogger(__name__)
@@ -83,14 +84,32 @@ else:
     }
 
 
-def create_ocr(*, use_gpu: bool = False, use_dml=False) -> RapidOCR:
-    # https://rapidai.github.io/RapidOCRDocs/main/install_usage/rapidocr/API/RapidOCR/#_1
+def _ocr_params(*, use_gpu: bool, use_dml: bool) -> dict:
     if use_gpu:
-        params = _GPU_PADDLEPADDLE_PARAMS
-    elif use_dml:
-        params = _DML_PARAMS
-    else:
-        params = _CPU_PARAMS
+        return dict(_GPU_PADDLEPADDLE_PARAMS)
+    if use_dml:
+        return dict(_DML_PARAMS)
+    return dict(_CPU_PARAMS)
+
+
+def _apply_rec_lang(params: dict, game_lang: Language | None) -> None:
+    """Switch recognition model for non-Chinese game clients (RapidOCR >= 3.4)."""
+    if game_lang != Language.TH or _rapidocr_version < Version("3.4.0"):
+        return
+    from rapidocr import LangRec, ModelType, OCRVersion
+
+    params.update({
+        "Rec.lang_type": LangRec.TH,
+        "Rec.model_type": ModelType.MOBILE,
+        "Rec.ocr_version": OCRVersion.PPOCRV5,
+    })
+    logger.info("OCR recognition model: Thai (PP-OCRv5)")
+
+
+def create_ocr(*, use_gpu: bool = False, use_dml=False, game_lang: Language | None = None) -> RapidOCR:
+    # https://rapidai.github.io/RapidOCRDocs/main/install_usage/rapidocr/API/RapidOCR/#_1
+    params = _ocr_params(use_gpu=use_gpu, use_dml=use_dml)
+    _apply_rec_lang(params, game_lang)
     engine = RapidOCR(
         params=params
     )  # 输入BGR

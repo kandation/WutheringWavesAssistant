@@ -7,7 +7,7 @@ from src.config.config import Config, BossRushConfig, DailyConfig, GameConfig, S
 from src.core.boss import BossNameEnum
 from src.core.i18n import I18nText, Language
 
-_OCR_SUPPORTED_LANGUAGES = frozenset({Language.ZH, Language.EN})
+_OCR_SUPPORTED_LANGUAGES = frozenset({Language.ZH, Language.EN, Language.TH})
 from src.util import winreg_util
 
 logger = logging.getLogger(__name__)
@@ -208,7 +208,7 @@ class GameRuntimeConfig:
                 lang = Language(self._cfg.gameLanguage)
                 if lang not in _OCR_SUPPORTED_LANGUAGES:
                     logger.warning(
-                        "Game language '%s' is not supported for OCR (use zh-CN or en); using zh-CN",
+                        "Game language '%s' is not supported for OCR (use zh-CN, en, or th); using zh-CN",
                         lang.value,
                     )
                     lang = Language.ZH

@@ -63,6 +63,10 @@ class WindowService(ABC):
         pass
 
     @abstractmethod
+    def get_capture_rect_on_screen(self) -> tuple[int, int, int, int]:
+        pass
+
+    @abstractmethod
     def get_window_rect(self) -> tuple[int, int, int, int]:
         pass
 

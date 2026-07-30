@@ -27,6 +27,8 @@ class AbstractPageService(PageService, ABC):
         self._boss_info_service: BossInfoService = boss_info_service
 
     def _ocr_lang_fallbacks(self, lang: Language) -> list[Language]:
+        if lang == Language.TH:
+            return [Language.TH, Language.EN, Language.ZH]
         if lang == Language.EN:
             return [Language.EN, Language.ZH]
         return [Language.ZH, Language.EN]

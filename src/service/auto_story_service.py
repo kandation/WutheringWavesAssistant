@@ -11,9 +11,21 @@ from src.core.interface import ControlService, OCRService, ImgService, WindowSer
 from src.core.pages import Page, Position, TextMatch, ConditionalAction, ImageMatch
 from src.core.regions import DynamicPosition, TextPosition
 from src.service.page_event_service import PageEventAbstractService
+from src.util import file_util, img_util, img_template_util
 from src.util.wrap_util import timeit
 
 logger = logging.getLogger(__name__)
+
+# Template match ROIs are normalized to 1280x720 reference coordinates.
+_STORY_SKIP_TEMPLATE = "StorySkip.png"
+_STORY_SUMMARY_CLOSE_TEMPLATE = "StorySummaryClose.png"
+_STORY_SKIP_MATCH_CONFIDENCE = 0.70
+_STORY_SKIP_SCALE_MIN = 0.35
+_STORY_SKIP_SCALE_MAX = 1.5
+_STORY_SKIP_SCALE_STEP = 0.02
+_BOTTOM_SKIP_ROI_RATE = (0.0, 520 / 720, 1.0, 1.0)
+_SUMMARY_SKIP_ROI_RATE = (450 / 1280, 520 / 720, 950 / 1280, 700 / 720)
+_SUMMARY_CLOSE_ROI_RATE = (1100 / 1280, 0.0, 1.0, 100 / 720)
 
 
 class DynamicFpsLimit:
@@ -86,6 +98,64 @@ class AutoStoryServiceImpl(PageEventAbstractService):
         # fps limit
         self._dynamic_fps_limit = DynamicFpsLimit()
 
+        self._story_skip_template = img_util.read_img(
+            file_util.get_assets_template(_STORY_SKIP_TEMPLATE))
+        self._story_summary_close_template = img_util.read_img(
+            file_util.get_assets_template(_STORY_SUMMARY_CLOSE_TEMPLATE))
+
+    @staticmethod
+    def _roi_from_rate(src_img: np.ndarray, rate: tuple[float, float, float, float]) -> tuple[int, int, int, int]:
+        h, w = src_img.shape[:2]
+        return (
+            int(rate[0] * w),
+            int(rate[1] * h),
+            int(rate[2] * w),
+            int(rate[3] * h),
+        )
+
+    def _match_story_template(
+            self,
+            src_img: np.ndarray,
+            template: np.ndarray,
+            roi_rate: tuple[float, float, float, float],
+    ):
+        roi = self._roi_from_rate(src_img, roi_rate)
+        return img_template_util.find_icon_in_roi_accelerated(
+            src_img,
+            template,
+            roi=roi,
+            scale_min=_STORY_SKIP_SCALE_MIN,
+            scale_max=_STORY_SKIP_SCALE_MAX,
+            scale_step=_STORY_SKIP_SCALE_STEP,
+        )
+
+    def _click_template_match(self, bbox, *, label: str) -> bool:
+        if bbox is None or bbox.score < _STORY_SKIP_MATCH_CONFIDENCE:
+            return False
+        x, y = bbox.center
+        logger.info("Template match %s score=%.3f at (%s, %s)", label, bbox.score, x, y)
+        time.sleep(0.1)
+        self._control_service.click(x, y)
+        time.sleep(0.1)
+        self._control_service.click(x, y)
+        time.sleep(0.1)
+        return True
+
+    def _try_template_summary_close(self, src_img: np.ndarray) -> bool:
+        bbox = self._match_story_template(
+            src_img, self._story_summary_close_template, _SUMMARY_CLOSE_ROI_RATE)
+        return self._click_template_match(bbox, label="summary-close")
+
+    def _try_template_summary_skip(self, src_img: np.ndarray) -> bool:
+        bbox = self._match_story_template(
+            src_img, self._story_skip_template, _SUMMARY_SKIP_ROI_RATE)
+        return self._click_template_match(bbox, label="summary-skip")
+
+    def _try_template_bottom_skip(self, src_img: np.ndarray) -> bool:
+        bbox = self._match_story_template(
+            src_img, self._story_skip_template, _BOTTOM_SKIP_ROI_RATE)
+        return self._click_template_match(bbox, label="bottom-skip")
+
     def execute(self, **kwargs):
         if not self._window_service.is_foreground_window():
             time.sleep(0.5)
@@ -124,6 +194,16 @@ class AutoStoryServiceImpl(PageEventAbstractService):
         auto_npc_interact = False
         # 跳过剧情
         if self.skip_is_open:
+            # Summary screen: close X (top-right) or Skip in dialog area
+            if self._try_template_summary_close(src_img):
+                self.skip_btn_is_clicked = True
+                self.skip_btn_is_clicked_start_time = time.time()
+                return
+            if self._try_template_summary_skip(src_img):
+                self.skip_btn_is_clicked = True
+                self.skip_btn_is_clicked_start_time = time.time()
+                return
+
             # 点击了 跳过 后的数秒内，检查 不再提示 和 剧情梗概
             if time.time() - self.skip_btn_is_clicked_start_time < self.skip_btn_is_clicked_timeout:
                 ocr_results = self._ocr_service.ocr(img)
@@ -135,6 +215,14 @@ class AutoStoryServiceImpl(PageEventAbstractService):
             elif self.skip_btn_is_clicked: # 超时了重置为未点击状态，即恢复默认检测频率，点击状态检测频率更高，无其他作用
                 self.skip_btn_is_clicked = False
                 return
+
+            # Fast template match for bottom Skip button
+            if self._try_template_bottom_skip(src_img):
+                self.skip_btn_is_clicked = True
+                self.skip_btn_is_clicked_start_time = time.time()
+                return
+
+            # OCR fallback for top-left Skip (legacy UI) and confirm dialogs
             if not ocr_results:
                 skip_text_match = self._skip_page.get_text_match_by_name("跳过|SKIP")
                 ocr_results = self._ocr_service.ocr(img, skip_text_match.position)
@@ -262,15 +350,15 @@ class AutoStoryServiceImpl(PageEventAbstractService):
             return True
 
         skip_story_synopsis_page = Page(
-            name="剧情梗概",
+            name="剧情梗概|Summary",
             targetTexts=[
                 TextMatch(
                     name="继续观看",
-                    text=r"^继续观看$",
+                    text=r"^(继续观看|Resume)$",
                 ),
                 TextMatch(
                     name="跳过剧情",
-                    text=r"^跳过剧情$",
+                    text=r"^(跳过剧情|Skip)$",
                 ),
             ],
             action=skip_story_synopsis_action,

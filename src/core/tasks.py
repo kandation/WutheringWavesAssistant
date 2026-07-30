@@ -520,7 +520,9 @@ def task_init(event, spec: TaskSpec, ipc: IPCManager, is_thread=False, source=No
     logger.debug(spec.game_path)
 
     if ctx.runtime.cfg and ctx.runtime.cfg.game:
-        ctx.window_service.set_lang(ctx.runtime.cfg.game.gameLanguage)
+        game_lang = ctx.runtime.cfg.game.gameLanguage
+        ctx.spec.game_lang = game_lang.value
+        ctx.window_service.set_lang(game_lang)
 
     return ctx, container
 

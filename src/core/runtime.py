@@ -6,6 +6,8 @@ from pathlib import Path
 from src.config.config import Config, BossRushConfig, DailyConfig, GameConfig, SoarToTheBeatConfig
 from src.core.boss import BossNameEnum
 from src.core.i18n import I18nText, Language
+
+_OCR_SUPPORTED_LANGUAGES = frozenset({Language.ZH, Language.EN})
 from src.util import winreg_util
 
 logger = logging.getLogger(__name__)
@@ -204,6 +206,12 @@ class GameRuntimeConfig:
         if self._cfg.gameLanguage:
             try:
                 lang = Language(self._cfg.gameLanguage)
+                if lang not in _OCR_SUPPORTED_LANGUAGES:
+                    logger.warning(
+                        "Game language '%s' is not supported for OCR (use zh-CN or en); using zh-CN",
+                        lang.value,
+                    )
+                    lang = Language.ZH
             except Exception:
                 logger.warning(f"Invalid game language: '{self._cfg.gameLanguage}', using default: {lang}")
                 return lang

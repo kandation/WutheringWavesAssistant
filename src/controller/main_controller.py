@@ -452,6 +452,9 @@ class MainController:
         spec.param_config = ParamConfig.build(content=spec.param_config_snapshot)
         spec.param_config.gamePath = spec.game_path  # 旧版
         spec.user_config = Config.load_user_config().to_dict()
+        spec.game_lang = (spec.user_config.get("game") or {}).get("gameLanguage")
+        if not spec.game_lang:
+            spec.game_lang = (spec.user_config.get("Game") or {}).get("GameLanguage")
         if task_name == "AutoStorySkipProcessTask":
             spec.skip_is_open = True
         elif task_name == "AutoStoryEnjoyProcessTask":

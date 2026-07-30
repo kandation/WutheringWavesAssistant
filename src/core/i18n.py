@@ -3229,4 +3229,10 @@ class I18nTr:
         lang_map = I18N_TEXT.get(text_key)
         if not lang_map:
             return None
-        return lang_map.get(lang_key)
+        text = lang_map.get(lang_key)
+        if text is None and lang_key == Language.TH:
+            for fallback in (Language.EN, Language.ZH):
+                text = lang_map.get(fallback)
+                if text is not None:
+                    break
+        return text

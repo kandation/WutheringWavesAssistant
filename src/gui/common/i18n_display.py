@@ -1,8 +1,15 @@
 """Resolve display language for GUI labels backed by core I18nText."""
 
+import logging
+
 from src.core.i18n import I18nText, I18nTr, Language
 from src.gui.common.boss import BossNameEnum
 from src.gui.common.config import Language as GuiLanguage, cfg, paramConfig
+
+logger = logging.getLogger(__name__)
+
+# Languages with OCR regex / page matchers in core i18n data.
+OCR_SUPPORTED_LANGUAGES = frozenset({Language.ZH, Language.EN})
 
 _BOSS_I18N_KEY_OVERRIDES: dict[str, str] = {
     "ThousandPuppetPavilion": I18nText.WeeklyBossThousandPuppetPavilion,
@@ -41,17 +48,28 @@ def boss_display_name(boss: BossNameEnum) -> str:
     return text
 
 
+def resolve_game_language() -> Language:
+    """Game text language for OCR / i18n matching (from 游戏文本 setting, not GUI language)."""
+    game_language = paramConfig.get(paramConfig.gameLanguage)
+    if game_language:
+        try:
+            lang = Language(game_language)
+            if lang not in OCR_SUPPORTED_LANGUAGES:
+                logger.warning(
+                    "Game language '%s' is not supported for OCR (use zh-CN or en); falling back to zh-CN",
+                    lang.value,
+                )
+                return Language.ZH
+            return lang
+        except ValueError:
+            logger.warning("Invalid game language setting: '%s'; falling back to zh-CN", game_language)
+    return Language.ZH
+
+
 def resolve_display_language() -> Language:
-    """Pick language for dropdown labels: GUI Thai first, then game language, else ZH."""
+    """Pick I18nTr language for game-content dropdown labels (GUI only, not OCR)."""
     gui_lang = cfg.get(cfg.language)
     if gui_lang == GuiLanguage.THAI:
         return Language.TH
 
-    game_language = paramConfig.get(paramConfig.gameLanguage)
-    if game_language:
-        try:
-            return Language(game_language)
-        except ValueError:
-            pass
-
-    return Language.ZH
+    return resolve_game_language()

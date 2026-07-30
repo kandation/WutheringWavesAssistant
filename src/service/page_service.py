@@ -4,7 +4,7 @@ from abc import ABC
 from typing import Optional
 
 from src.core.geometry import TextBox
-from src.core.i18n import I18N_PAGES, I18N_PAGES_ECHO_MERGE, I18N_TEXT, I18nText, I18N_PAGES_GUIDEBOOK
+from src.core.i18n import I18N_PAGES, I18N_PAGES_ECHO_MERGE, I18N_TEXT, I18nText, I18N_PAGES_GUIDEBOOK, Language
 from src.core.interface import WindowService, PageService, OCRService, ControlService, ImgService, ODService, \
     BossInfoService, EchoMergeService, GlobalPageService, GuidebookService
 from src.core.pages import I18nPage, OcrResult, I18nPageX, OcrQuery
@@ -26,6 +26,11 @@ class AbstractPageService(PageService, ABC):
         self._od_service: ODService = od_service
         self._boss_info_service: BossInfoService = boss_info_service
 
+    def _ocr_lang_fallbacks(self, lang: Language) -> list[Language]:
+        if lang == Language.EN:
+            return [Language.EN, Language.ZH]
+        return [Language.ZH, Language.EN]
+
     def _matches(self, ocr_result: OcrResult, i18n_page: I18nPageX) -> dict[str, dict[str, TextBox]]:
         matches = {}
         if not ocr_result or not ocr_result.has_results():
@@ -34,11 +39,26 @@ class AbstractPageService(PageService, ABC):
         lang = self._window_service.get_lang()
         i18n_page.lang = lang
 
-        matcher = i18n_page.i18n_regex_pages.get(lang)
-        for page_key, regex_page in matcher.items():
-            match_result = regex_page.match(self._window_service.scaler, ocr_result.results)
-            if match_result:
-                matches[page_key] = match_result
+        for try_lang in self._ocr_lang_fallbacks(lang):
+            matcher = i18n_page.i18n_regex_pages.get(try_lang)
+            if not matcher:
+                continue
+            if try_lang != lang:
+                logger.debug("OCR page patterns: falling back from '%s' to '%s'", lang.value, try_lang.value)
+            for page_key, regex_page in matcher.items():
+                match_result = regex_page.match(self._window_service.scaler, ocr_result.results)
+                if match_result:
+                    matches[page_key] = match_result
+            if matches:
+                break
+
+        if not matches:
+            sample = [box.text for box in ocr_result.results[:5]]
+            logger.warning(
+                "OCR page match failed for language '%s'; sample texts: %s",
+                lang.value,
+                sample,
+            )
         return matches
 
     def _match(self, ocr_result: OcrResult, i18n_page: I18nPageX) -> Optional[tuple[str, dict[str, TextBox]]]:

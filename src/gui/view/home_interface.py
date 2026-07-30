@@ -171,6 +171,7 @@ class BasicSettingWidget(QWidget):
 
     def __onLangComboBoxChanged(self, index):
         paramConfig.set(paramConfig.gameLanguage, self.langComboBox.currentData())
+        paramConfig.save()
         # self.__refreshGridLayout(index)
 
     def __onDeviceComboBoxChanged(self, index):

@@ -5,6 +5,8 @@ from src.core.contexts import Context
 from src.core.exceptions import HwndError, raise_as
 from src.core.geometry import Scaler, BBox
 from src.core.i18n import I18nTr, I18N_TEXT, I18nText, Language
+
+_OCR_SUPPORTED_LANGUAGES = frozenset({Language.ZH, Language.EN})
 from src.core.interface import WindowService
 from src.util import hwnd_util
 
@@ -88,25 +90,66 @@ class HwndServiceImpl(WindowService):
                 logger.exception("Get hwnd error!")
                 return False
 
+    def _lang_from_runtime_config(self) -> Language | None:
+        runtime = getattr(self._context, "runtime", None)
+        if runtime and runtime.cfg and runtime.cfg.game:
+            return runtime.cfg.game.gameLanguage
+        return None
+
+    @staticmethod
+    def _normalize_ocr_lang(lang: Language | str | None) -> Language | None:
+        if lang is None:
+            return None
+        if isinstance(lang, str):
+            try:
+                lang = Language(lang)
+            except ValueError:
+                logger.warning("Invalid game language code: '%s'", lang)
+                return None
+        if lang not in _OCR_SUPPORTED_LANGUAGES:
+            logger.warning(
+                "Game language '%s' is not supported for OCR matching (use zh-CN or en)",
+                lang.value,
+            )
+            return None
+        return lang
+
     @raise_as(HwndError)
     def get_lang(self) -> Language:
         if self._lang is None:
             if self._game_lang:
-                self._lang = self._game_lang
-            else:
+                self._lang = self._normalize_ocr_lang(self._game_lang)
+            if self._lang is None:
+                self._lang = self._normalize_ocr_lang(self._lang_from_runtime_config())
+            if self._lang is None:
                 titles = I18N_TEXT.get(I18nText.WutheringWaves)
                 game_title = hwnd_util.get_hwnd_title(self.handle)
                 for lang, title in titles.items():
                     if title == game_title:
-                        self._lang = lang
-                        logger.debug(f"Language: {self._lang.value}")
+                        self._lang = self._normalize_ocr_lang(lang)
+                        if self._lang:
+                            logger.info("Detected game language from window title: '%s'", self._lang.value)
                         break
             if self._lang is None:
-                logger.error("Failed to get Language!")
+                logger.error("Failed to resolve game language; defaulting OCR matching to zh-CN")
+                self._lang = Language.ZH
         return self._lang
 
-    def set_lang(self, lang: Language):
-        self._lang = lang
+    def set_lang(self, lang: Language | str | None):
+        normalized = self._normalize_ocr_lang(lang)
+        if normalized is None:
+            logger.warning("Ignoring unsupported OCR language setting: %r", lang)
+            return
+        if self._lang != normalized:
+            if self._lang is not None:
+                logger.warning(
+                    "OCR/i18n language changed: '%s' -> '%s' (must match in-game text language)",
+                    self._lang.value,
+                    normalized.value,
+                )
+            else:
+                logger.info("OCR/i18n matching language: '%s' (game text setting)", normalized.value)
+        self._lang = normalized
 
     @raise_as(HwndError)
     def get_ratio(self):

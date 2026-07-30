@@ -1518,35 +1518,52 @@ def doWeeklyChallenge(ctx: NodeContext, local: TaskLocal, **kwargs) -> bool:
         cur_fsm.complete()
         return True
 
-    # 获取这页的副本
+    # 获取这页的副本（支持滚动查找）
     keywords = ctx.tr([*tacets, I18nText.Go, I18nText.Challenge])
-    textboxes = ui.search(keywords, bbox_guidebook_content(ctx))
-    if not textboxes:
-        return _fail_return()
-    textboxes.sort(key=lambda p: p.y1)
-    logger.debug(f"textboxes: {textboxes}")
 
-    # 分组
-    cards = {}
-    for i, textbox in enumerate(textboxes):
-        found_tacet = next((x for x in tacets if re.search(ctx.tr(x), textbox.text, re.I)), None)
-        logger.debug(f"found_tacet: {found_tacet}")
-        if not found_tacet:
-            continue
-        cur_card = [textbox, None, False]
-        cards[found_tacet] = cur_card
-        if i + 1 >= len(textboxes):
-            continue
-        # 直接挑战表示可以打，前往表示没解锁不能打
-        if re.search(ctx.tr(I18nText.Challenge), textboxes[i + 1].text, re.I):
-            cur_card[1] = textboxes[i + 1]
-        elif re.search(ctx.tr(I18nText.Go), textboxes[i + 1].text, re.I):
-            cur_card[1] = textboxes[i + 1]
-            cur_card[2] = True
-    logger.debug(f"cards: {cards}")
+    scroll_p1 = ctx.scaler.as_point(AnchorPoint(1245, 250, Align.Top | Align.Right))
+    scroll_p2 = ctx.scaler.as_point(AnchorPoint(1245, 325, Align.Top | Align.Right))
+    scroll_p3 = ctx.scaler.as_point(AnchorPoint(1245, 628, Align.Top | Align.Right))
 
-    # 取出与选择同名的组
-    cur_card = cards.get(cur_instance)
+    cur_card = None
+    next_point = scroll_p1
+    while True:
+        textboxes = ui.sleep(0.1).snapshot().search(keywords, bbox_guidebook_content(ctx))
+        if not textboxes:
+            return _fail_return()
+        textboxes.sort(key=lambda p: p.y1)
+        logger.debug(f"textboxes: {textboxes}")
+
+        # 分组
+        cards = {}
+        for i, textbox in enumerate(textboxes):
+            found_tacet = next((x for x in tacets if re.search(ctx.tr(x), textbox.text, re.I)), None)
+            logger.debug(f"found_tacet: {found_tacet}")
+            if not found_tacet:
+                continue
+            cur_card_item = [textbox, None, False]
+            cards[found_tacet] = cur_card_item
+            if i + 1 >= len(textboxes):
+                continue
+            # 直接挑战表示可以打，前往表示没解锁不能打
+            if re.search(ctx.tr(I18nText.Challenge), textboxes[i + 1].text, re.I):
+                cur_card_item[1] = textboxes[i + 1]
+            elif re.search(ctx.tr(I18nText.Go), textboxes[i + 1].text, re.I):
+                cur_card_item[1] = textboxes[i + 1]
+                cur_card_item[2] = True
+        logger.debug(f"cards: {cards}")
+
+        cur_card = cards.get(cur_instance)
+        if cur_card and all(i is not None for i in cur_card):
+            break
+        cur_card = None
+
+        next_point = Point(next_point.x, next_point.y + scroll_p2.y - scroll_p1.y)
+        if next_point.y >= scroll_p3.y:
+            break
+        logger.debug(f"next_point: {next_point}")
+        ui.sleep(0.2).click_point(next_point, times=2, interval=0.2).sleep(0.3)
+
     logger.debug(f"cur_card: {cur_card}")
     if not cur_card or any(i is None for i in cur_card):
         return _fail_return()

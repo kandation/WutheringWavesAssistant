@@ -113,14 +113,44 @@ class AutoStoryServiceImpl(PageEventAbstractService):
         )
 
     @staticmethod
-    def _roi_from_rate(src_img: np.ndarray, rate: tuple[float, float, float, float]) -> tuple[int, int, int, int]:
+    def _clamp_roi(
+            x1: int, y1: int, x2: int, y2: int, w: int, h: int,
+    ) -> tuple[int, int, int, int]:
+        """Clamp ROI to image bounds and guarantee at least 1px width/height."""
+        if w <= 0 or h <= 0:
+            return 0, 0, 0, 0
+        x1 = max(0, min(x1, w - 1))
+        y1 = max(0, min(y1, h - 1))
+        x2 = max(x1 + 1, min(x2, w))
+        y2 = max(y1 + 1, min(y2, h))
+        return x1, y1, x2, y2
+
+    @classmethod
+    def _roi_from_rate(
+            cls,
+            src_img: np.ndarray,
+            rate: tuple[float, float, float, float],
+    ) -> tuple[int, int, int, int]:
         h, w = src_img.shape[:2]
-        return (
+        return cls._clamp_roi(
             int(rate[0] * w),
             int(rate[1] * h),
             int(rate[2] * w),
             int(rate[3] * h),
+            w,
+            h,
         )
+
+    @classmethod
+    def _roi_position_from_rate(
+            cls,
+            img: np.ndarray,
+            rate: tuple[float, float, float, float],
+    ) -> Position | None:
+        x1, y1, x2, y2 = cls._roi_from_rate(img, rate)
+        if x2 <= x1 or y2 <= y1:
+            return None
+        return Position.build(x1, y1, x2, y2)
 
     def _match_story_template(
             self,
@@ -168,10 +198,14 @@ class AutoStoryServiceImpl(PageEventAbstractService):
             img: np.ndarray,
             roi_rate: tuple[float, float, float, float],
     ) -> TextPosition | None:
-        dyn_pos = DynamicPosition(rate=roi_rate)
-        h, w = img.shape[:2]
-        roi_pos = dyn_pos.to_position(h, w)
-        match = self._ocr_service.find_text(_SKIP_TEXT_PATTERN, img, dyn_pos)
+        # Use pixel Position on the resized OCR image. DynamicPosition in OCR
+        # service is converted with window client size, not img.shape, which
+        # yields empty crops after resize_by_weight (1280px-wide) paths.
+        roi_pos = self._roi_position_from_rate(img, roi_rate)
+        if roi_pos is None:
+            logger.debug("Skip OCR ROI empty for rate=%s on img %s", roi_rate, img.shape[:2])
+            return None
+        match = self._ocr_service.find_text(_SKIP_TEXT_PATTERN, img, roi_pos)
         if match is None:
             return None
         return self._map_ocr_match_to_src(src_img, img, roi_pos, match)

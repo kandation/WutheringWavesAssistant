@@ -34,7 +34,9 @@ class AppConfig(BaseModel):
         True, title="声骸合成锁定功能DEBUG显示输出的开关"
     )
     StoryDebugMode: bool = Field(
-        False, title="剧情跳过DEBUG叠加层开关（截图叠加，不读取游戏内存）"
+        False,
+        title="剧情跳过DEBUG叠加层开关（截图叠加，不读取游戏内存）",
+        description="在 config.yaml 中设置 StoryDebugMode: true，或设置环境变量 WWA_STORY_DEBUG=1",
     )
     StoryDebugOverlayMode: str = Field(
         "overlay", title="剧情跳过DEBUG模式: overlay=透明叠加, preview=截图预览"

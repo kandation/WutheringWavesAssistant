@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 _WINDOW_NAME = "WWA Story Debug"
 _OVERLAY_CLASS = "WWAStoryDebugOverlay"
+_AC_SRC_OVER = 0x00
+_AC_SRC_ALPHA = 0x01
+_ULW_ALPHA = 0x02
 
 
 @dataclass(frozen=True)
@@ -53,6 +56,7 @@ class StoryDebugOverlay:
         self._mode = mode.lower()
         self._hwnd: int | None = None
         self._class_registered = False
+        self._warned_missing_rect = False
 
     @staticmethod
     def from_config(enabled: bool, mode: str = "overlay") -> "StoryDebugOverlay | None":
@@ -83,6 +87,13 @@ class StoryDebugOverlay:
         else:
             self._show_overlay(boxes, client_rect_screen, src_img.shape[1], src_img.shape[0])
 
+    @staticmethod
+    def _pump_messages():
+        try:
+            win32gui.PumpWaitingMessages()
+        except Exception:
+            logger.debug("Overlay message pump failed", exc_info=True)
+
     def _show_preview(
         self,
         src_img: np.ndarray,
@@ -109,6 +120,7 @@ class StoryDebugOverlay:
         cv2.imshow(_WINDOW_NAME, frame)
         cv2.setWindowProperty(_WINDOW_NAME, cv2.WND_PROP_TOPMOST, 1)
         cv2.waitKey(1)
+        self._pump_messages()
         if client_rect_screen:
             hwnd = win32gui.FindWindow(None, _WINDOW_NAME)
             if hwnd:
@@ -130,6 +142,7 @@ class StoryDebugOverlay:
         wc.hInstance = win32api.GetModuleHandle(None)
         wc.lpszClassName = _OVERLAY_CLASS
         wc.lpfnWndProc = win32gui.DefWindowProc
+        wc.hbrBackground = win32gui.GetStockObject(win32con.NULL_BRUSH)
         try:
             win32gui.RegisterClass(wc)
         except win32gui.error:
@@ -170,7 +183,16 @@ class StoryDebugOverlay:
             win32api.GetModuleHandle(None),
             None,
         )
-        win32gui.ShowWindow(self._hwnd, win32con.SW_SHOW)
+        win32gui.ShowWindow(self._hwnd, win32con.SW_SHOWNOACTIVATE)
+        win32gui.SetWindowPos(
+            self._hwnd,
+            win32con.HWND_TOPMOST,
+            x,
+            y,
+            w,
+            h,
+            win32con.SWP_NOACTIVATE | win32con.SWP_SHOWWINDOW,
+        )
 
     def _show_overlay(
         self,
@@ -180,7 +202,14 @@ class StoryDebugOverlay:
         img_h: int,
     ):
         if not client_rect_screen:
+            if not self._warned_missing_rect:
+                logger.warning(
+                    "Story debug overlay: no game client rect; overlay hidden "
+                    "(set StoryDebugOverlayMode: preview to use a separate window)",
+                )
+                self._warned_missing_rect = True
             return
+        self._warned_missing_rect = False
         sx1, sy1, sx2, sy2 = client_rect_screen
         w, h = sx2 - sx1, sy2 - sy1
         if w <= 0 or h <= 0:
@@ -207,6 +236,17 @@ class StoryDebugOverlay:
 
         self._ensure_overlay_hwnd(sx1, sy1, w, h)
         self._blit_layered(self._hwnd, image, sx1, sy1)
+        if self._hwnd:
+            win32gui.SetWindowPos(
+                self._hwnd,
+                win32con.HWND_TOPMOST,
+                sx1,
+                sy1,
+                w,
+                h,
+                win32con.SWP_NOACTIVATE | win32con.SWP_SHOWWINDOW,
+            )
+        self._pump_messages()
 
     def _blit_layered(self, hwnd: int, image: Image.Image, screen_x: int, screen_y: int):
         hdc_screen = win32gui.GetDC(0)
@@ -217,9 +257,9 @@ class StoryDebugOverlay:
         hdc_mem.SelectObject(bmp)
         ImageWin.Dib(image).draw(hdc_mem.GetHandleOutput(), (0, 0, width, height))
 
-        blend = _BLENDFUNCTION(0, 0, 255, 1)  # AC_SRC_OVER, AC_SRC_ALPHA
+        blend = _BLENDFUNCTION(_AC_SRC_OVER, 0, 255, _AC_SRC_ALPHA)
         pos = wintypes.POINT(screen_x, screen_y)
-        size = wintypes.POINT(width, height)
+        size = wintypes.SIZE(width, height)
         src_point = wintypes.POINT(0, 0)
         ctypes.windll.user32.UpdateLayeredWindow(
             hwnd,
@@ -230,7 +270,7 @@ class StoryDebugOverlay:
             ctypes.byref(src_point),
             0,
             ctypes.byref(blend),
-            2,  # ULW_ALPHA
+            _ULW_ALPHA,
         )
         win32gui.ReleaseDC(0, hdc_screen)
         hdc_mem.DeleteDC()

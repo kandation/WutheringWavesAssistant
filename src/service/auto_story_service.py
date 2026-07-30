@@ -1,7 +1,10 @@
+import hashlib
 import logging
+import os
 import threading
 import time
 
+import cv2
 import numpy as np
 from pynput import keyboard
 
@@ -32,6 +35,9 @@ _SUMMARY_SKIP_ROI_RATE = (280 / 1280, 500 / 720, 1050 / 1280, 700 / 720)
 _SUMMARY_CLOSE_ROI_RATE = (1150 / 1280, 0.0, 1.0, 120 / 720)
 _TOP_LEFT_SKIP_ROI_RATE = (0.0, 0.0, 200 / 1280, 150 / 720)
 _SKIP_TEXT_PATTERN = r"^(跳过|S?KI[PE].{0,3}|Skip)$"
+_ACTION_COOLDOWN_SEC = 1.5
+_SUMMARY_SKIP_MAX_ATTEMPTS = 3
+_SCREEN_CACHE_TTL_SEC = 0.6
 
 
 class DynamicFpsLimit:
@@ -107,10 +113,28 @@ class AutoStoryServiceImpl(PageEventAbstractService):
         self._story_summary_close_template = img_util.read_img(
             file_util.get_assets_template(_STORY_SUMMARY_CLOSE_TEMPLATE))
         app_cfg = context.config.app
+        story_debug = bool(app_cfg.StoryDebugMode) or os.environ.get(
+            "WWA_STORY_DEBUG", "").lower() in ("1", "true", "yes")
         self._debug_overlay = StoryDebugOverlay.from_config(
-            app_cfg.StoryDebugMode,
+            story_debug,
             mode=getattr(app_cfg, "StoryDebugOverlayMode", "overlay"),
         )
+        if story_debug:
+            logger.info(
+                "Story debug overlay enabled (mode=%s)",
+                getattr(app_cfg, "StoryDebugOverlayMode", "overlay"),
+            )
+
+        self._story_screen_fingerprint: bytes | None = None
+        self._story_screen_fingerprint_time = 0.0
+        self._story_cached_close_bbox: IconBox | None = None
+        self._story_cached_bottom_skip: TextPosition | None = None
+        self._story_cached_summary_skip: TextPosition | None = None
+        self._story_cached_on_summary = False
+        self._story_last_action_time = 0.0
+        self._story_last_action_label = ""
+        self._story_summary_skip_attempts = 0
+        self._story_was_on_summary = False
 
     @staticmethod
     def _clamp_roi(
@@ -210,7 +234,47 @@ class AutoStoryServiceImpl(PageEventAbstractService):
             return None
         return self._map_ocr_match_to_src(src_img, img, roi_pos, match)
 
+    def _story_action_on_cooldown(self, label: str) -> bool:
+        if self._story_last_action_label != label:
+            return False
+        return (time.time() - self._story_last_action_time) < _ACTION_COOLDOWN_SEC
+
+    def _record_story_action(self, label: str):
+        self._story_last_action_time = time.time()
+        self._story_last_action_label = label
+
+    def _reset_story_skip_state(self):
+        self._story_screen_fingerprint = None
+        self._story_cached_close_bbox = None
+        self._story_cached_bottom_skip = None
+        self._story_cached_summary_skip = None
+        self._story_cached_on_summary = False
+        self._story_summary_skip_attempts = 0
+        self._story_was_on_summary = False
+
+    def _story_screen_fingerprint_for(self, src_img: np.ndarray) -> bytes:
+        """Cheap hash of story-relevant ROIs to skip redundant OCR/template work."""
+        h, w = src_img.shape[:2]
+        patches: list[np.ndarray] = []
+        for rate in (
+                _SUMMARY_CLOSE_ROI_RATE,
+                _SUMMARY_SKIP_ROI_RATE,
+                _BOTTOM_SKIP_ROI_RATE,
+        ):
+            x1, y1, x2, y2 = self._roi_from_rate(src_img, rate)
+            if x2 > x1 and y2 > y1:
+                patch = src_img[y1:y2, x1:x2]
+                patches.append(
+                    cv2.resize(patch, (32, 32), interpolation=cv2.INTER_AREA))
+        if not patches:
+            return hashlib.md5(src_img[::8, ::8].tobytes()).digest()
+        merged = np.concatenate([p.reshape(-1) for p in patches])
+        return hashlib.md5(merged.tobytes()).digest()
+
     def _click_position(self, position: Position, *, label: str) -> bool:
+        if self._story_action_on_cooldown(label):
+            logger.debug("Skip click %s (cooldown)", label)
+            return True
         x, y = position.center
         logger.info("Click %s at (%s, %s) text=%r", label, x, y, getattr(position, "text", ""))
         time.sleep(0.1)
@@ -218,9 +282,13 @@ class AutoStoryServiceImpl(PageEventAbstractService):
         time.sleep(0.1)
         self._control_service.click(x, y)
         time.sleep(0.1)
+        self._record_story_action(label)
         return True
 
     def _click_icon_box(self, bbox: IconBox, *, label: str) -> bool:
+        if self._story_action_on_cooldown(label):
+            logger.debug("Skip click %s (cooldown)", label)
+            return True
         x, y = bbox.center
         logger.info("Template match %s score=%.3f at (%s, %s)", label, bbox.score, x, y)
         time.sleep(0.1)
@@ -228,6 +296,7 @@ class AutoStoryServiceImpl(PageEventAbstractService):
         time.sleep(0.1)
         self._control_service.click(x, y)
         time.sleep(0.1)
+        self._record_story_action(label)
         return True
 
     def _roi_overlay_box(
@@ -280,25 +349,71 @@ class AutoStoryServiceImpl(PageEventAbstractService):
         try:
             client_rect = self._window_service.get_client_rect_on_screen()
         except Exception:
+            logger.warning("Story debug overlay: failed to get client rect", exc_info=True)
             client_rect = None
         self._debug_overlay.update(src_img, boxes, client_rect)
 
     def _handle_story_skip(self, src_img: np.ndarray, img: np.ndarray) -> bool:
         """OCR + close-X template flow for Skip / Summary screens."""
-        close_bbox = self._detect_summary_close(src_img)
-        on_summary = close_bbox is not None
-        summary_skip = None
-        bottom_skip = None
+        now = time.time()
+        fingerprint = self._story_screen_fingerprint_for(src_img)
+        screen_unchanged = (
+            fingerprint == self._story_screen_fingerprint
+            and (now - self._story_screen_fingerprint_time) < _SCREEN_CACHE_TTL_SEC
+        )
+
+        if screen_unchanged:
+            close_bbox = self._story_cached_close_bbox
+            on_summary = self._story_cached_on_summary
+            summary_skip = self._story_cached_summary_skip
+            bottom_skip = self._story_cached_bottom_skip
+        else:
+            close_bbox = self._detect_summary_close(src_img)
+            on_summary = close_bbox is not None
+            summary_skip = None
+            bottom_skip = None
+            if on_summary:
+                summary_skip = self._ocr_find_skip_in_roi(
+                    src_img, img, _SUMMARY_SKIP_ROI_RATE)
+            else:
+                bottom_skip = self._ocr_find_skip_in_roi(
+                    src_img, img, _BOTTOM_SKIP_ROI_RATE)
+            self._story_screen_fingerprint = fingerprint
+            self._story_screen_fingerprint_time = now
+            self._story_cached_close_bbox = close_bbox
+            self._story_cached_on_summary = on_summary
+            self._story_cached_summary_skip = summary_skip
+            self._story_cached_bottom_skip = bottom_skip
 
         if on_summary:
-            summary_skip = self._ocr_find_skip_in_roi(src_img, img, _SUMMARY_SKIP_ROI_RATE)
+            if not self._story_was_on_summary:
+                self._story_summary_skip_attempts = 0
+            self._story_was_on_summary = True
             self._update_debug_overlay(
-                src_img, close_bbox=close_bbox, bottom_skip=summary_skip, summary_skip=summary_skip)
-            if summary_skip is not None:
-                return self._click_position(summary_skip, label="summary-skip-ocr")
-            return self._click_icon_box(close_bbox, label="summary-close")
+                src_img,
+                close_bbox=close_bbox,
+                bottom_skip=summary_skip,
+                summary_skip=summary_skip,
+            )
+            if summary_skip is not None and self._story_summary_skip_attempts < _SUMMARY_SKIP_MAX_ATTEMPTS:
+                was_on_cooldown = self._story_action_on_cooldown("summary-skip-ocr")
+                self._click_position(summary_skip, label="summary-skip-ocr")
+                if not was_on_cooldown:
+                    self._story_summary_skip_attempts += 1
+                return True
+            if close_bbox is not None:
+                if self._story_summary_skip_attempts >= _SUMMARY_SKIP_MAX_ATTEMPTS:
+                    logger.info(
+                        "Summary Skip OCR failed after %s attempts; clicking close X",
+                        _SUMMARY_SKIP_MAX_ATTEMPTS,
+                    )
+                return self._click_icon_box(close_bbox, label="summary-close")
+            return False
 
-        bottom_skip = self._ocr_find_skip_in_roi(src_img, img, _BOTTOM_SKIP_ROI_RATE)
+        if self._story_was_on_summary:
+            logger.info("Left summary screen; resetting story skip state")
+            self._reset_story_skip_state()
+
         self._update_debug_overlay(
             src_img, close_bbox=None, bottom_skip=bottom_skip, summary_skip=None)
         if bottom_skip is not None:
